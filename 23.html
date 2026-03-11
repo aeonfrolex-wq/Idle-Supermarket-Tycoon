@@ -1,0 +1,3022 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Supermarket Game - Security Guard Update</title>
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    body { margin: 0; padding: 0; overflow: hidden; touch-action: none; }
+    ::-webkit-scrollbar { display: none; }
+    @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Nunito:wght@400;700;900&display=swap');
+    .font-digital { font-family: 'Share Tech Mono', monospace; }
+    .font-nunito { font-family: 'Nunito', sans-serif; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+    // --- Audio System (Web Audio API) ---
+    let audioCtx = null;
+    let isSfxEnabled = true; // Global SFX flag
+    let isBgmEnabled = true; // Global BGM flag
+
+    const initAudio = () => {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+    };
+
+    const playTone = (freq, type, duration, vol = 0.1) => {
+        if (!isSfxEnabled) return; 
+        initAudio();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        
+        gain.gain.setValueAtTime(0, audioCtx.currentTime);
+        gain.gain.linearRampToValueAtTime(vol, audioCtx.currentTime + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+        
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+    };
+
+    const SOUNDS = {
+        coin: () => {
+            playTone(1200, 'sine', 0.1, 0.05);
+            setTimeout(() => playTone(1600, 'sine', 0.15, 0.05), 50);
+        },
+        buy: () => {
+            playTone(400, 'square', 0.1, 0.03);
+            setTimeout(() => playTone(600, 'square', 0.1, 0.03), 100);
+            setTimeout(() => playTone(800, 'square', 0.2, 0.03), 200);
+        },
+        place: () => {
+            playTone(250, 'triangle', 0.1, 0.08);
+        },
+        error: () => {
+            playTone(150, 'sawtooth', 0.2, 0.05);
+        },
+        tutorial: () => {
+            playTone(800, 'sine', 0.1, 0.05);
+            setTimeout(() => playTone(1200, 'sine', 0.15, 0.05), 100);
+        },
+        step: () => {
+            if (!isSfxEnabled) return;
+            initAudio();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sine'; 
+            osc.frequency.setValueAtTime(120, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(40, audioCtx.currentTime + 0.05);
+            gain.gain.setValueAtTime(0, audioCtx.currentTime);
+            gain.gain.linearRampToValueAtTime(0.02, audioCtx.currentTime + 0.01);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.05);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.05);
+        },
+        trash: () => {
+            if (!isSfxEnabled) return;
+            initAudio();
+            const bufferSize = audioCtx.sampleRate * 0.15; 
+            const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+            const noise = audioCtx.createBufferSource();
+            noise.buffer = buffer;
+            const gain = audioCtx.createGain();
+            gain.gain.setValueAtTime(0.03, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15);
+            noise.connect(gain);
+            gain.connect(audioCtx.destination);
+            noise.start();
+        }
+    };
+
+    // --- Background Music System ---
+    const BGM_NOTES = [
+        392.00, 329.63, 261.63, 329.63,
+        392.00, 523.25, 392.00, 0,
+        349.23, 293.66, 246.94, 293.66,
+        349.23, 440.00, 392.00, 0
+    ];
+    let bgmInterval = null;
+    let bgmStep = 0;
+
+    const playBGMNote = () => {
+        if (!isBgmEnabled) return;
+        initAudio();
+        const t = audioCtx.currentTime;
+        const step = bgmStep % 16;
+        
+        // Bassline
+        if (step % 4 === 0) {
+            const bassFreq = (step < 8) ? 130.81 : 146.83; 
+            const bassOsc = audioCtx.createOscillator();
+            const bassGain = audioCtx.createGain();
+            bassOsc.type = 'square';
+            bassOsc.frequency.setValueAtTime(bassFreq, t);
+            
+            const filter = audioCtx.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(300, t);
+            
+            bassGain.gain.setValueAtTime(0, t);
+            bassGain.gain.linearRampToValueAtTime(0.015, t + 0.05);
+            bassGain.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+            
+            bassOsc.connect(filter);
+            filter.connect(bassGain);
+            bassGain.connect(audioCtx.destination);
+            bassOsc.start(t);
+            bassOsc.stop(t + 0.4);
+        }
+        
+        // Melody
+        const melodyFreq = BGM_NOTES[step];
+        if (melodyFreq > 0) {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(melodyFreq, t);
+            
+            gain.gain.setValueAtTime(0, t);
+            gain.gain.linearRampToValueAtTime(0.015, t + 0.05);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+            
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(t);
+            osc.stop(t + 0.2);
+        }
+        
+        bgmStep++;
+    };
+
+    const startBGM = () => {
+        if (bgmInterval || !isBgmEnabled) return;
+        bgmStep = 0;
+        bgmInterval = setInterval(playBGMNote, 250); 
+    };
+
+    const stopBGM = () => {
+        if (bgmInterval) {
+            clearInterval(bgmInterval);
+            bgmInterval = null;
+        }
+    };
+
+    // --- Game Configuration & Map Data ---
+    const CANVAS_WIDTH = 900;
+    const CANVAS_HEIGHT = 700;
+    const BASE_MAX_STAFF = 5;
+    const TARGET_FPS = 60; 
+
+    const UPGRADES_DB = {
+      speed: { id: 'speed', name: 'Running Shoes', icon: '👟', desc: '+20% Player Speed per level.', maxLevel: 5, baseCost: 10, costMult: 1.5 },
+      truck: { id: 'truck', name: 'Warehouse Manager', icon: '🚚', desc: '+5 Delivery Boxes per level.', maxLevel: 10, baseCost: 15, costMult: 1.4 },
+      charisma: { id: 'charisma', name: 'Charisma', icon: '💬', desc: '+10% Bonus Revenue at registers.', maxLevel: 5, baseCost: 20, costMult: 1.6 }
+    };
+
+    const FACILITY_DB = {
+      produce: { type: 'store', name: 'Fresh Produce', gw: 2, gh: 6, baseCost: 10, baseRev: 5, baseTimeMs: 2500, costMult: 1.15, colors: { top: '#4ade80', left: '#22c55e', right: '#166534' }, items: [{cTop:'#ef4444', cLeft:'#dc2626', cRight:'#991b1b'}, {cTop:'#f97316', cLeft:'#ea580c', cRight:'#c2410c'}] },
+      bakery: { type: 'store', name: 'Bakery', gw: 2, gh: 6, baseCost: 300, baseRev: 50, baseTimeMs: 4000, costMult: 1.2, colors: { top: '#fde047', left: '#eab308', right: '#a16207' }, items: [{cTop:'#d97706', cLeft:'#b45309', cRight:'#78350f'}] },
+      meat: { type: 'store', name: 'Butcher', gw: 2, gh: 6, baseCost: 1500, baseRev: 250, baseTimeMs: 5000, costMult: 1.2, colors: { top: '#fca5a5', left: '#ef4444', right: '#991b1b' }, items: [{cTop:'#f87171', cLeft:'#dc2626', cRight:'#7f1d1d'}] },
+      electronics: { type: 'store', name: 'Electronics', gw: 2, gh: 6, baseCost: 6000, baseRev: 800, baseTimeMs: 7000, costMult: 1.25, colors: { top: '#93c5fd', left: '#3b82f6', right: '#1e3a8a' }, items: [{cTop:'#1e293b', cLeft:'#0f172a', cRight:'#020617'}] },
+      clothing: { type: 'store', name: 'Apparel', gw: 2, gh: 6, baseCost: 15000, baseRev: 1800, baseTimeMs: 6000, costMult: 1.25, colors: { top: '#c084fc', left: '#a855f7', right: '#7e22ce' }, items: [{cTop:'#fbcfe8', cLeft:'#f472b6', cRight:'#be185d'}] },
+      furniture: { type: 'store', name: 'Furniture', gw: 2, gh: 6, baseCost: 40000, baseRev: 5000, baseTimeMs: 9000, costMult: 1.3, colors: { top: '#fdba74', left: '#f97316', right: '#c2410c' }, items: [{cTop:'#78350f', cLeft:'#451a03', cRight:'#271001'}] },
+      hardware: { type: 'store', name: 'Hardware', gw: 2, gh: 6, baseCost: 150000, baseRev: 15000, baseTimeMs: 12000, costMult: 1.35, colors: { top: '#9ca3af', left: '#64748b', right: '#475569' }, items: [{cTop:'#cbd5e1', cLeft:'#94a3b8', cRight:'#64748b'}] },
+      toys: { type: 'store', name: 'Toy Store', gw: 2, gh: 6, baseCost: 500000, baseRev: 45000, baseTimeMs: 8000, costMult: 1.4, colors: { top: '#f472b6', left: '#db2777', right: '#9d174d' }, items: [{cTop:'#38bdf8', cLeft:'#0284c7', cRight:'#0369a1'}] },
+      
+      reg1: { type: 'register', name: 'Checkout 1', gw: 3, gh: 2, baseCost: 0, baseRev: 0, baseTimeMs: 3500, costMult: 1.4, colors: { top: '#f8fafc', left: '#e2e8f0', right: '#94a3b8' } },
+      reg2: { type: 'register', name: 'Checkout 2', gw: 3, gh: 2, baseCost: 1500, baseRev: 0, baseTimeMs: 3500, costMult: 1.4, colors: { top: '#f8fafc', left: '#e2e8f0', right: '#94a3b8' } },
+      reg3: { type: 'register', name: 'Checkout 3', gw: 3, gh: 2, baseCost: 10000, baseRev: 0, baseTimeMs: 3500, costMult: 1.4, colors: { top: '#f8fafc', left: '#e2e8f0', right: '#94a3b8' } },
+      reg4: { type: 'register', name: 'Checkout 4', gw: 3, gh: 2, baseCost: 50000, baseRev: 0, baseTimeMs: 3500, costMult: 1.4, colors: { top: '#f8fafc', left: '#e2e8f0', right: '#94a3b8' } },
+      reg5: { type: 'register', name: 'Checkout 5', gw: 3, gh: 2, baseCost: 200000, baseRev: 0, baseTimeMs: 3500, costMult: 1.45, colors: { top: '#f8fafc', left: '#e2e8f0', right: '#94a3b8' } },
+      reg6: { type: 'register', name: 'Checkout 6', gw: 3, gh: 2, baseCost: 750000, baseRev: 0, baseTimeMs: 3500, costMult: 1.5, colors: { top: '#f8fafc', left: '#e2e8f0', right: '#94a3b8' } },
+
+      security: { type: 'security', name: 'Security Desk', gw: 2, gh: 2, baseCost: 2000, baseRev: 0, baseTimeMs: 0, costMult: 1.5, colors: { top: '#334155', left: '#1e293b', right: '#0f172a' } },
+
+      plant: { type: 'decoration', subType: 'plant', name: 'Potted Plant', gw: 1, gh: 1, baseCost: 150, costMult: 1.5, attrBonus: 0.1, colors: { top: '#4ade80', left: '#22c55e', right: '#166534' } },
+      statue: { type: 'decoration', subType: 'statue', name: 'Gold Statue', gw: 1, gh: 1, baseCost: 1000, costMult: 1.8, attrBonus: 0.3, colors: { top: '#fef08a', left: '#facc15', right: '#a16207' } },
+      sign: { type: 'decoration', subType: 'sign', name: 'Neon Sign', gw: 2, gh: 1, baseCost: 5000, costMult: 2.0, attrBonus: 0.75, colors: { top: '#fbcfe8', left: '#ec4899', right: '#be185d' } },
+    };
+
+    const MAPS = [
+      {
+        id: 'minimart', name: 'Mini Mart', unlockCost: 0, rows: 16, cols: 16, tileW: 75, tileH: 37.5,
+        facilities: {
+          produce: { ...FACILITY_DB.produce, id: 'produce', gx: 3, gy: 2 },
+          bakery: { ...FACILITY_DB.bakery, id: 'bakery', gx: 9, gy: 2 },
+          reg1: { ...FACILITY_DB.reg1, id: 'reg1', gx: 3, gy: 11 },
+          reg2: { ...FACILITY_DB.reg2, id: 'reg2', gx: 10, gy: 11 },
+          security: { ...FACILITY_DB.security, id: 'security', gx: 14, gy: 11 },
+          plant1: { ...FACILITY_DB.plant, id: 'plant1', gx: 1, gy: 2 },
+          plant2: { ...FACILITY_DB.plant, id: 'plant2', gx: 12, gy: 2 }
+        }
+      },
+      {
+        id: 'supermarket', name: 'Supermarket', unlockCost: 5000, rows: 24, cols: 24, tileW: 75, tileH: 37.5,
+        facilities: {
+          produce: { ...FACILITY_DB.produce, id: 'produce', gx: 3, gy: 3 },
+          bakery: { ...FACILITY_DB.bakery, id: 'bakery', gx: 9, gy: 3 },
+          meat: { ...FACILITY_DB.meat, id: 'meat', gx: 15, gy: 3 },
+          electronics: { ...FACILITY_DB.electronics, id: 'electronics', gx: 9, gy: 11 },
+          reg1: { ...FACILITY_DB.reg1, id: 'reg1', gx: 3, gy: 19 },
+          reg2: { ...FACILITY_DB.reg2, id: 'reg2', gx: 7, gy: 19 },
+          reg3: { ...FACILITY_DB.reg3, id: 'reg3', gx: 15, gy: 19 },
+          security: { ...FACILITY_DB.security, id: 'security', gx: 19, gy: 19 },
+          plant1: { ...FACILITY_DB.plant, id: 'plant1', gx: 1, gy: 3 },
+          statue1: { ...FACILITY_DB.statue, id: 'statue1', gx: 19, gy: 3 },
+          sign1: { ...FACILITY_DB.sign, id: 'sign1', gx: 11, gy: 1 }
+        }
+      },
+      {
+        id: 'megamall', name: 'Mega Mall', unlockCost: 50000, rows: 32, cols: 32, tileW: 75, tileH: 37.5, 
+        facilities: {
+          produce: { ...FACILITY_DB.produce, id: 'produce', gx: 5, gy: 4, gh: 8 },
+          bakery: { ...FACILITY_DB.bakery, id: 'bakery', gx: 13, gy: 4, gh: 8 },
+          meat: { ...FACILITY_DB.meat, id: 'meat', gx: 21, gy: 4, gh: 8 },
+          clothing: { ...FACILITY_DB.clothing, id: 'clothing', gx: 5, gy: 15, gh: 8 },
+          electronics: { ...FACILITY_DB.electronics, id: 'electronics', gx: 13, gy: 15, gh: 8 },
+          furniture: { ...FACILITY_DB.furniture, id: 'furniture', gx: 21, gy: 15, gh: 8 },
+          reg1: { ...FACILITY_DB.reg1, id: 'reg1', gx: 3, gy: 27 },
+          reg2: { ...FACILITY_DB.reg2, id: 'reg2', gx: 7, gy: 27 },
+          reg3: { ...FACILITY_DB.reg3, id: 'reg3', gx: 11, gy: 27 },
+          reg4: { ...FACILITY_DB.reg4, id: 'reg4', gx: 19, gy: 27 },
+          security: { ...FACILITY_DB.security, id: 'security', gx: 23, gy: 27 },
+          statue1: { ...FACILITY_DB.statue, id: 'statue1', gx: 2, gy: 4 },
+          statue2: { ...FACILITY_DB.statue, id: 'statue2', gx: 25, gy: 4 },
+          plant1: { ...FACILITY_DB.plant, id: 'plant1', gx: 2, gy: 15 },
+          plant2: { ...FACILITY_DB.plant, id: 'plant2', gx: 25, gy: 15 },
+          sign1: { ...FACILITY_DB.sign, id: 'sign1', gx: 15, gy: 2 }
+        }
+      },
+      {
+        id: 'hypercentre', name: 'Hyper Center', unlockCost: 500000, rows: 40, cols: 40, tileW: 75, tileH: 37.5,
+        facilities: {
+          produce: { ...FACILITY_DB.produce, id: 'produce', gx: 3, gy: 4, gh: 8 },
+          meat: { ...FACILITY_DB.meat, id: 'meat', gx: 11, gy: 4, gh: 8 },
+          bakery: { ...FACILITY_DB.bakery, id: 'bakery', gx: 25, gy: 4, gh: 8 },
+          clothing: { ...FACILITY_DB.clothing, id: 'clothing', gx: 33, gy: 4, gh: 8 },
+          electronics: { ...FACILITY_DB.electronics, id: 'electronics', gx: 3, gy: 16, gh: 8 },
+          furniture: { ...FACILITY_DB.furniture, id: 'furniture', gx: 11, gy: 16, gh: 8 },
+          hardware: { ...FACILITY_DB.hardware, id: 'hardware', gx: 25, gy: 16, gh: 8 },
+          reg1: { ...FACILITY_DB.reg1, id: 'reg1', gx: 3, gy: 35 },
+          reg2: { ...FACILITY_DB.reg2, id: 'reg2', gx: 9, gy: 35 },
+          reg3: { ...FACILITY_DB.reg3, id: 'reg3', gx: 15, gy: 35 },
+          reg4: { ...FACILITY_DB.reg4, id: 'reg4', gx: 25, gy: 35 },
+          reg5: { ...FACILITY_DB.reg5, id: 'reg5', gx: 31, gy: 35 },
+          security: { ...FACILITY_DB.security, id: 'security', gx: 37, gy: 35 },
+          plant1: { ...FACILITY_DB.plant, id: 'plant1', gx: 1, gy: 16 },
+          plant2: { ...FACILITY_DB.plant, id: 'plant2', gx: 38, gy: 16 },
+          statue1: { ...FACILITY_DB.statue, id: 'statue1', gx: 19, gy: 16 },
+          sign1: { ...FACILITY_DB.sign, id: 'sign1', gx: 19, gy: 2 }
+        }
+      },
+      {
+        id: 'omniplaza', name: 'Omni Plaza', unlockCost: 5000000, rows: 48, cols: 48, tileW: 75, tileH: 37.5,
+        facilities: {
+          produce: { ...FACILITY_DB.produce, id: 'produce', gx: 4, gy: 5, gh: 10 },
+          bakery: { ...FACILITY_DB.bakery, id: 'bakery', gx: 12, gy: 5, gh: 10 },
+          meat: { ...FACILITY_DB.meat, id: 'meat', gx: 30, gy: 5, gh: 10 },
+          clothing: { ...FACILITY_DB.clothing, id: 'clothing', gx: 38, gy: 5, gh: 10 },
+          electronics: { ...FACILITY_DB.electronics, id: 'electronics', gx: 4, gy: 20, gh: 10 },
+          furniture: { ...FACILITY_DB.furniture, id: 'furniture', gx: 12, gy: 20, gh: 10 },
+          hardware: { ...FACILITY_DB.hardware, id: 'hardware', gx: 30, gy: 20, gh: 10 },
+          toys: { ...FACILITY_DB.toys, id: 'toys', gx: 38, gy: 20, gh: 10 },
+          reg1: { ...FACILITY_DB.reg1, id: 'reg1', gx: 4, gy: 43 },
+          reg2: { ...FACILITY_DB.reg2, id: 'reg2', gx: 10, gy: 43 },
+          reg3: { ...FACILITY_DB.reg3, id: 'reg3', gx: 16, gy: 43 },
+          reg4: { ...FACILITY_DB.reg4, id: 'reg4', gx: 28, gy: 43 },
+          reg5: { ...FACILITY_DB.reg5, id: 'reg5', gx: 34, gy: 43 },
+          reg6: { ...FACILITY_DB.reg6, id: 'reg6', gx: 40, gy: 43 },
+          security: { ...FACILITY_DB.security, id: 'security', gx: 45, gy: 43 },
+          statue1: { ...FACILITY_DB.statue, id: 'statue1', gx: 23, gy: 20 },
+          statue2: { ...FACILITY_DB.statue, id: 'statue2', gx: 23, gy: 30 },
+          plant1: { ...FACILITY_DB.plant, id: 'plant1', gx: 2, gy: 20 },
+          plant2: { ...FACILITY_DB.plant, id: 'plant2', gx: 45, gy: 20 },
+          sign1: { ...FACILITY_DB.sign, id: 'sign1', gx: 23, gy: 2 }
+        }
+      }
+    ];
+
+    const getBaseIso = (map, x, y, z = 0) => ({
+      x: (x - y) * (map.tileW / 2),
+      y: (x + y) * (map.tileH / 2) - z
+    });
+
+    const toIso = (map, x, y, z = 0, camX = CANVAS_WIDTH / 2, camY = CANVAS_HEIGHT / 2) => ({
+      x: (x - y) * (map.tileW / 2) + camX,
+      y: (x + y) * (map.tileH / 2) - z + camY
+    });
+
+    const toWorld = (map, screenX, screenY, camX = CANVAS_WIDTH / 2, camY = CANVAS_HEIGHT / 2) => {
+      const dx = screenX - camX;
+      const dy = screenY - camY;
+      return {
+        x: (dx / (map.tileW / 2) + dy / (map.tileH / 2)) / 2,
+        y: (dy / (map.tileH / 2) - dx / (map.tileW / 2)) / 2
+      };
+    };
+
+    const getDistance = (x1, y1, x2, y2) => Math.hypot(x2 - x1, y2 - y1);
+    const formatMoney = (num) => {
+      if (num >= 1000000) return `${(num/1000000).toFixed(2)}M`;
+      if (num >= 1000) return `${(num/1000).toFixed(1)}k`;
+      return `${Math.floor(num)}`;
+    };
+
+    const getPath = (startX, startY, destX, destY, doorX, baseRows, eRows) => {
+        let path = [];
+        const crossAbove = baseRows - 6.5; 
+        const crossBelow = baseRows - 1.5;
+        const crossOut = eRows + 1.5;
+        const highwayX = doorX;
+
+        const getZone = (y) => {
+            if (y < baseRows - 3) return 0; 
+            if (y <= eRows + 0.5) return 1; 
+            return 2; 
+        };
+
+        const startZone = getZone(startY);
+        const destZone = getZone(destY);
+        
+        const sCross = startZone === 0 ? crossAbove : startZone === 1 ? crossBelow : crossOut;
+        const dCross = destZone === 0 ? crossAbove : destZone === 1 ? crossBelow : crossOut;
+
+        if (startZone === destZone) {
+            path.push({ x: startX, y: sCross });
+            path.push({ x: destX, y: dCross });
+            path.push({ x: destX, y: destY });
+        } else {
+            path.push({ x: startX, y: sCross });
+            path.push({ x: highwayX, y: sCross });
+            path.push({ x: highwayX, y: dCross });
+            path.push({ x: destX, y: dCross });
+            path.push({ x: destX, y: destY });
+        }
+        return path;
+    };
+
+    const getAmbientColor = (t) => {
+        if (t >= 0 && t < 5) return 'rgba(15, 23, 42, 0.75)'; 
+        if (t >= 5 && t < 7) { 
+            const p = (t - 5) / 2;
+            return `rgba(${15 + (251-15)*p}, ${23 + (146-23)*p}, ${42 + (60-42)*p}, ${0.75 - 0.45*p})`;
+        }
+        if (t >= 7 && t < 9) { 
+            const p = (t - 7) / 2;
+            return `rgba(251, 146, 60, ${0.3 - 0.3*p})`;
+        }
+        if (t >= 9 && t < 17) return 'rgba(0, 0, 0, 0)'; 
+        if (t >= 17 && t < 19) { 
+            const p = (t - 17) / 2;
+            return `rgba(249, 115, 22, ${0.35 * p})`;
+        }
+        if (t >= 19 && t < 21) { 
+            const p = (t - 19) / 2;
+            return `rgba(${249 + (15-249)*p}, ${115 + (23-115)*p}, ${22 + (42-22)*p}, ${0.35 + 0.4*p})`;
+        }
+        if (t >= 21 && t <= 24) return 'rgba(15, 23, 42, 0.75)'; 
+        return 'rgba(0,0,0,0)';
+    };
+
+    const defaultFacilitiesState = [
+      { produce: 0, bakery: 0, reg1: 1, reg2: 0, security: 0, plant1: 0, plant2: 0 }, 
+      { produce: 0, bakery: 0, meat: 0, electronics: 0, reg1: 1, reg2: 0, reg3: 0, security: 0, plant1: 0, statue1: 0, sign1: 0 },
+      { produce: 0, bakery: 0, clothing: 0, meat: 0, electronics: 0, furniture: 0, reg1: 1, reg2: 0, reg3: 0, reg4: 0, security: 0, statue1: 0, statue2: 0, plant1: 0, plant2: 0, sign1: 0 },
+      { produce: 0, meat: 0, bakery: 0, clothing: 0, electronics: 0, furniture: 0, hardware: 0, reg1: 1, reg2: 0, reg3: 0, reg4: 0, reg5: 0, security: 0, plant1: 0, plant2: 0, statue1: 0, sign1: 0 },
+      { produce: 0, bakery: 0, meat: 0, clothing: 0, electronics: 0, furniture: 0, hardware: 0, toys: 0, reg1: 1, reg2: 0, reg3: 0, reg4: 0, reg5: 0, reg6: 0, security: 0, statue1: 0, statue2: 0, plant1: 0, plant2: 0, sign1: 0 }
+    ];
+
+    function SupermarketGame() {
+      // --- Menu & Save State ---
+      const [appMode, setAppMode] = useState('menu'); // 'menu' | 'playing'
+      const [hasSaveData, setHasSaveData] = useState(false);
+      const [showConfirmNew, setShowConfirmNew] = useState(false);
+      
+      const [hasLoaded, setHasLoaded] = useState(false);
+      const [money, setMoney] = useState(500); 
+      const [gems, setGems] = useState(25);
+      const [incomeRate, setIncomeRate] = useState(0);
+      
+      // --- Settings State ---
+      const [sfxOn, setSfxOn] = useState(true);
+      const [bgmOn, setBgmOn] = useState(true);
+      const [showSettingsModal, setShowSettingsModal] = useState(false);
+      
+      const [showMapModal, setShowMapModal] = useState(false);
+      const [showUpgradesModal, setShowUpgradesModal] = useState(false);
+      
+      const [currentMapIndex, setCurrentMapIndex] = useState(0);
+      const [unlockedMaps, setUnlockedMaps] = useState([true, false, false, false, false]);
+      const [mapExpansions, setMapExpansions] = useState([0, 0, 0, 0, 0]); 
+      const [staffCounts, setStaffCounts] = useState([0, 0, 0, 0, 0]); 
+      const [facilities, setFacilities] = useState(defaultFacilitiesState);
+      const [upgrades, setUpgrades] = useState({ speed: 0, truck: 0, charisma: 0 });
+      
+      // --- Tutorial State ---
+      const [tutorialStep, setTutorialStep] = useState(0);
+      const tutRef = useRef(0);
+
+      const [nearbyFacility, setNearbyFacility] = useState(null); 
+      const [selectedFacility, setSelectedFacility] = useState(null); 
+      
+      const [joystickPos, setJoystickPos] = useState({ x: 0, y: 0 });
+      const joystickBaseRef = useRef(null);
+
+      const canvasRef = useRef(null);
+      const moneyRef = useRef(money);
+      const gemsRef = useRef(gems);
+      const upgradesRef = useRef(upgrades);
+      const facilitiesRef = useRef(facilities);
+      const mapIndexRef = useRef(currentMapIndex);
+      const unlockedMapsRef = useRef(unlockedMaps);
+      const mapExpansionsRef = useRef(mapExpansions);
+      const staffCountsRef = useRef(staffCounts);
+      const incomeTracking = useRef([]); 
+      
+      // Settings Toggle Functions
+      const toggleSfx = () => {
+          const newVal = !sfxOn;
+          isSfxEnabled = newVal;
+          setSfxOn(newVal);
+          localStorage.setItem('supermarketSfxPref', newVal);
+          if (newVal) SOUNDS.coin(); 
+      };
+
+      const toggleBgm = () => {
+          const newVal = !bgmOn;
+          isBgmEnabled = newVal;
+          setBgmOn(newVal);
+          localStorage.setItem('supermarketBgmPref', newVal);
+          
+          if (newVal && appMode === 'playing') {
+              startBGM();
+          } else {
+              stopBGM();
+          }
+      };
+
+      const getActiveMap = useCallback(() => {
+        const mIdx = mapIndexRef.current;
+        const base = MAPS[mIdx];
+        const exp = mapExpansionsRef.current[mIdx] || 0;
+        const eCols = base.cols + exp * 4;
+        const eRows = base.rows + exp * 4;
+
+        const dynamicFacilities = {};
+        
+        Object.keys(base.facilities).forEach(key => {
+            const fac = base.facilities[key];
+            let newFac = { ...fac };
+
+            if (fac.type === 'store') {
+                newFac.gh = fac.gh + (exp * 2);
+                if (fac.gy >= 10) newFac.gy = fac.gy + (exp * 2);
+            } else if (fac.type === 'decoration') {
+                if (fac.gy >= 10) newFac.gy = fac.gy + (exp * 2);
+            } else if (fac.type === 'register' || fac.type === 'security') {
+                newFac.gy = fac.gy + (exp * 4);
+            }
+            dynamicFacilities[key] = newFac;
+        });
+
+        if (exp > 0) {
+            const baseAisle = Object.values(base.facilities).find(f => f.type === 'store');
+            const baseReg = Object.values(base.facilities).find(f => f.type === 'register');
+            
+            const AISLE_COLORS = [
+                { top: '#c084fc', left: '#a855f7', right: '#7e22ce' }, 
+                { top: '#f472b6', left: '#db2777', right: '#9d174d' }, 
+                { top: '#60a5fa', left: '#3b82f6', right: '#1d4ed8' }, 
+                { top: '#facc15', left: '#eab308', right: '#a16207' }
+            ];
+            const ITEM_COLORS = [
+                {cTop:'#e879f9', cLeft:'#db2777', cRight:'#9d174d'},
+                {cTop:'#38bdf8', cLeft:'#0284c7', cRight:'#0369a1'},
+                {cTop:'#fde047', cLeft:'#ca8a04', cRight:'#854d0e'},
+                {cTop:'#c084fc', cLeft:'#a855f7', cRight:'#7e22ce'},
+            ];
+
+            for (let i = 1; i <= exp; i++) {
+                const aisleId = `exp_aisle_${i}`;
+                dynamicFacilities[aisleId] = {
+                    id: aisleId,
+                    type: 'store',
+                    name: `Bonus Aisle ${i}`,
+                    gw: 2,
+                    gh: baseAisle.gh + (exp * 2), 
+                    gx: base.cols + (i - 1) * 4 + 1, 
+                    gy: baseAisle.gy,
+                    baseCost: 20000 * Math.pow(2, i),
+                    baseRev: 2000 * Math.pow(1.5, i),
+                    baseTimeMs: 4000,
+                    costMult: 1.3,
+                    colors: AISLE_COLORS[(i-1) % AISLE_COLORS.length],
+                    items: [ITEM_COLORS[(i-1) % ITEM_COLORS.length]]
+                };
+
+                const regId = `exp_reg_${i}`;
+                dynamicFacilities[regId] = {
+                    id: regId,
+                    type: 'register',
+                    name: `Bonus Checkout ${i}`,
+                    gw: 3,
+                    gh: 2,
+                    gx: base.cols + (i - 1) * 4 + 0.5,
+                    gy: baseReg.gy + (exp * 4), 
+                    baseCost: 10000 * Math.pow(2, i),
+                    baseRev: 0,
+                    baseTimeMs: 3500,
+                    costMult: 1.4,
+                    colors: { top: '#f8fafc', left: '#e2e8f0', right: '#94a3b8' }
+                };
+            }
+        }
+
+        return {
+          ...base,
+          cols: eCols,
+          rows: eRows,
+          facilities: dynamicFacilities,
+          entrance: { gx: Math.floor(base.cols / 2) - 1, gy: eRows - 1 }
+        };
+      }, []);
+
+      const gameState = useRef({});
+      
+      const resetGameState = useCallback(() => {
+          const initialMap = MAPS[0];
+          const initialEntrance = { gx: Math.floor(initialMap.cols/2)-1, gy: initialMap.rows - 1 };
+          const initialCamX = CANVAS_WIDTH / 2 - (initialEntrance.gx - (initialEntrance.gy - 1)) * (initialMap.tileW / 2);
+          const initialCamY = CANVAS_HEIGHT / 2 - (initialEntrance.gx + (initialEntrance.gy - 1)) * (initialMap.tileH / 2);
+
+          gameState.current = {
+            timeOfDay: 8.0, 
+            camera: { x: initialCamX, y: initialCamY },
+            player: { x: initialEntrance.gx, y: initialEntrance.gy - 1, radius: 0.4, speed: 6, target: null, path: [], wobble: 0, boxes: 0, maxBoxes: 3, interactTimer: 0 },
+            keys: { w: false, a: false, s: false, d: false, ArrowUp: false, ArrowLeft: false, ArrowDown: false, ArrowRight: false },
+            doorOpen: 0,
+            npcs: [],
+            staff: [], 
+            guards: [],
+            trash: [], 
+            trucks: [], 
+            lights: [], 
+            supplies: 15,
+            floatingTexts: [],
+            particles: [],
+            simData: MAPS.map(m => {
+              let data = {};
+              Object.keys(m.facilities).forEach(k => {
+                data[k] = { stock: 0, cash: 0 };
+              });
+              return data;
+            }),
+            lastTime: performance.now(),
+            nearbyThreshold: 3.0 
+          };
+      }, []);
+
+      // Check for save data and sound preferences on mount
+      useEffect(() => {
+          const saveString = localStorage.getItem('supermarketSaveData');
+          if (saveString) {
+              setHasSaveData(true);
+          }
+          
+          const savedSfx = localStorage.getItem('supermarketSfxPref');
+          if (savedSfx !== null) {
+              const val = savedSfx === 'true';
+              isSfxEnabled = val;
+              setSfxOn(val);
+          }
+          
+          const savedBgm = localStorage.getItem('supermarketBgmPref');
+          if (savedBgm !== null) {
+              const val = savedBgm === 'true';
+              isBgmEnabled = val;
+              setBgmOn(val);
+          }
+      }, []);
+
+      const getSim = (mIdx, id) => {
+          if (!gameState.current.simData[mIdx]) gameState.current.simData[mIdx] = {};
+          if (!gameState.current.simData[mIdx][id]) {
+              gameState.current.simData[mIdx][id] = { stock: 0, cash: 0 };
+          }
+          return gameState.current.simData[mIdx][id];
+      };
+
+      let currentAttractiveness = 1.0;
+      if (hasLoaded && appMode === 'playing') {
+          const activeMap = getActiveMap();
+          Object.keys(activeMap.facilities).forEach(key => {
+              const fac = activeMap.facilities[key];
+              const lvl = facilities[currentMapIndex][key] || 0;
+              if (fac.type === 'decoration' && lvl > 0) {
+                  currentAttractiveness += fac.attrBonus * lvl;
+              }
+          });
+      }
+
+      useEffect(() => { moneyRef.current = money; }, [money]);
+      useEffect(() => { gemsRef.current = gems; }, [gems]);
+      useEffect(() => { upgradesRef.current = upgrades; }, [upgrades]);
+      useEffect(() => { facilitiesRef.current = facilities; }, [facilities]);
+      useEffect(() => { mapIndexRef.current = currentMapIndex; }, [currentMapIndex]);
+      useEffect(() => { unlockedMapsRef.current = unlockedMaps; }, [unlockedMaps]);
+      useEffect(() => { mapExpansionsRef.current = mapExpansions; }, [mapExpansions]);
+      useEffect(() => { staffCountsRef.current = staffCounts; }, [staffCounts]);
+
+      // Main Menu Actions
+      const handleContinueGame = () => {
+          SOUNDS.buy(); // Play sound on entering game
+          if (isBgmEnabled) startBGM();
+          setTutorialStep(0); tutRef.current = 0; // Ensure no tutorial on load
+          try {
+              const saveString = localStorage.getItem('supermarketSaveData');
+              if (saveString) {
+                  const saveData = JSON.parse(saveString);
+                  
+                  resetGameState(); // prep the ref
+
+                  if (saveData.money !== undefined) setMoney(saveData.money);
+                  if (saveData.gems !== undefined) setGems(saveData.gems);
+                  if (saveData.upgrades !== undefined) setUpgrades(saveData.upgrades);
+                  if (saveData.supplies !== undefined) gameState.current.supplies = saveData.supplies;
+                  if (saveData.timeOfDay !== undefined) gameState.current.timeOfDay = saveData.timeOfDay;
+                  
+                  if (saveData.unlockedMaps) {
+                      let u = [...saveData.unlockedMaps];
+                      while(u.length < MAPS.length) u.push(false);
+                      setUnlockedMaps(u);
+                  }
+                  if (saveData.mapExpansions) {
+                      let e = [...saveData.mapExpansions];
+                      while(e.length < MAPS.length) e.push(0);
+                      setMapExpansions(e);
+                  }
+                  if (saveData.staffCounts) {
+                      let s = [...saveData.staffCounts];
+                      while(s.length < MAPS.length) s.push(0);
+                      setStaffCounts(s);
+                  }
+                  if (saveData.facilities) {
+                      let savedFacs = saveData.facilities;
+                      let newFacs = defaultFacilitiesState.map((df, i) => {
+                          if (savedFacs[i]) return { ...df, ...savedFacs[i] };
+                          return df;
+                      });
+                      setFacilities(newFacs);
+                  }
+                  if (saveData.simData) {
+                      let savedSim = saveData.simData;
+                      gameState.current.simData = MAPS.map((m, i) => {
+                          let data = {};
+                          Object.keys(m.facilities).forEach(k => {
+                             data[k] = (savedSim[i] && savedSim[i][k]) ? savedSim[i][k] : { stock: 0, cash: 0 };
+                          });
+                          return data;
+                      });
+                  }
+                  
+                  if (saveData.currentMapIndex !== undefined) {
+                     setCurrentMapIndex(saveData.currentMapIndex);
+                     // Set map specific data
+                     setTimeout(() => {
+                       const activeMap = getActiveMap();
+                       gameState.current.player.x = activeMap.entrance.gx;
+                       gameState.current.player.y = activeMap.entrance.gy - 1;
+                       gameState.current.player.path = [];
+                       gameState.current.player.boxes = 0;
+                       gameState.current.camera.x = CANVAS_WIDTH / 2 - (activeMap.entrance.gx - (activeMap.entrance.gy - 1)) * (activeMap.tileW / 2);
+                       gameState.current.camera.y = CANVAS_HEIGHT / 2 - (activeMap.entrance.gx + (activeMap.entrance.gy - 1)) * (activeMap.tileH / 2);
+                       
+                       const staffCount = saveData.staffCounts?.[saveData.currentMapIndex] || 0;
+                       gameState.current.staff = Array(staffCount).fill(0).map((_, i) => ({
+                          id: Date.now() + i,
+                          x: activeMap.entrance.gx + (Math.random()*4 - 2),
+                          y: activeMap.entrance.gy - 2 - Math.random()*2,
+                          speed: 4, boxes: 0, maxBoxes: 3, path: [], moveTimeout: 0,
+                          target: null, targetFacility: null, state: 'IDLE', timer: Math.random(), wobble: 0
+                       }));
+                     }, 0);
+                  }
+                  
+                  setTimeout(() => {
+                     const map = getActiveMap();
+                     const basePos = getBaseIso(map, gameState.current.player.x, gameState.current.player.y, 80);
+                     gameState.current.floatingTexts.push({ bx: basePos.x, by: basePos.y, text: "Game Loaded!", color: '#3b82f6', life: 2.0 });
+                  }, 500);
+              }
+          } catch (e) {
+              console.error("Failed to parse save game:", e);
+              resetGameState(); // Fallback if save is corrupt
+          }
+          setHasLoaded(true);
+          setAppMode('playing');
+      };
+
+      const handleStartNewGame = () => {
+          SOUNDS.buy(); // Play sound on starting game
+          if (isBgmEnabled) startBGM();
+          localStorage.removeItem('supermarketSaveData');
+          setHasSaveData(false);
+          setShowConfirmNew(false);
+          
+          setMoney(500);
+          setGems(25);
+          setUnlockedMaps([true, false, false, false, false]);
+          setMapExpansions([0, 0, 0, 0, 0]);
+          setStaffCounts([0, 0, 0, 0, 0]);
+          setFacilities(defaultFacilitiesState);
+          setUpgrades({ speed: 0, truck: 0, charisma: 0 });
+          setCurrentMapIndex(0);
+          
+          resetGameState();
+          setTutorialStep(1); tutRef.current = 1; // Start tutorial
+          
+          setTimeout(() => {
+             const activeMap = getActiveMap();
+             gameState.current.player.x = activeMap.entrance.gx;
+             gameState.current.player.y = activeMap.entrance.gy - 1;
+             gameState.current.camera.x = CANVAS_WIDTH / 2 - (activeMap.entrance.gx - (activeMap.entrance.gy - 1)) * (activeMap.tileW / 2);
+             gameState.current.camera.y = CANVAS_HEIGHT / 2 - (activeMap.entrance.gx + (activeMap.entrance.gy - 1)) * (activeMap.tileH / 2);
+          }, 0);
+
+          setHasLoaded(true);
+          setAppMode('playing');
+      };
+
+      const checkNewGameClick = () => {
+          if (hasSaveData) {
+              setShowConfirmNew(true);
+          } else {
+              handleStartNewGame();
+          }
+      };
+
+      // AUTO SAVE HOOK
+      useEffect(() => {
+        if (!hasLoaded || appMode !== 'playing') return; 
+
+        const saveGame = () => {
+          const saveData = {
+            money: moneyRef.current,
+            gems: gemsRef.current,
+            upgrades: upgradesRef.current,
+            currentMapIndex: mapIndexRef.current,
+            unlockedMaps: unlockedMapsRef.current,
+            mapExpansions: mapExpansionsRef.current,
+            staffCounts: staffCountsRef.current,
+            facilities: facilitiesRef.current,
+            simData: gameState.current.simData,
+            supplies: gameState.current.supplies,
+            timeOfDay: gameState.current.timeOfDay
+          };
+          localStorage.setItem('supermarketSaveData', JSON.stringify(saveData));
+          setHasSaveData(true);
+        };
+
+        const intervalId = setInterval(saveGame, 5000); 
+        window.addEventListener('beforeunload', saveGame); 
+
+        return () => {
+          clearInterval(intervalId);
+          window.removeEventListener('beforeunload', saveGame);
+        };
+      }, [hasLoaded, appMode]);
+
+      const addMoney = useCallback((amount) => {
+        setMoney(prev => prev + amount);
+        incomeTracking.current.push({ time: performance.now(), amount });
+      }, []);
+
+      const addGems = useCallback((amount) => {
+        setGems(prev => prev + amount);
+      }, []);
+
+      useEffect(() => {
+        if (appMode !== 'playing') return;
+        const interval = setInterval(() => {
+          const now = performance.now();
+          incomeTracking.current = incomeTracking.current.filter(i => now - i.time < 10000);
+          const totalRecent = incomeTracking.current.reduce((sum, i) => sum + i.amount, 0);
+          setIncomeRate(Math.floor((totalRecent / 10) * 60));
+        }, 1000);
+        return () => clearInterval(interval);
+      }, [appMode]);
+
+      const handleTouchStart = (e) => {
+          e.stopPropagation();
+          updateJoystick(e.touches[0]);
+      };
+      const handleTouchMove = (e) => {
+          e.stopPropagation();
+          updateJoystick(e.touches[0]);
+      };
+      const handleTouchEnd = (e) => {
+          e.stopPropagation();
+          setJoystickPos({ x: 0, y: 0 });
+          gameState.current.keys = { w: false, a: false, s: false, d: false, ArrowUp: false, ArrowLeft: false, ArrowDown: false, ArrowRight: false };
+      };
+      
+      const updateJoystick = (touch) => {
+          if (!joystickBaseRef.current) return;
+          const rect = joystickBaseRef.current.getBoundingClientRect();
+          const centerX = rect.left + rect.width / 2;
+          const centerY = rect.top + rect.height / 2;
+          const dx = touch.clientX - centerX;
+          const dy = touch.clientY - centerY;
+          const dist = Math.hypot(dx, dy);
+          const maxDist = rect.width / 2 - 20;
+
+          let clampedX = dx;
+          let clampedY = dy;
+          if (dist > maxDist) {
+              clampedX = (dx / dist) * maxDist;
+              clampedY = (dy / dist) * maxDist;
+          }
+          setJoystickPos({ x: clampedX, y: clampedY });
+
+          const threshold = 15;
+          gameState.current.keys.a = dx < -threshold;
+          gameState.current.keys.d = dx > threshold;
+          gameState.current.keys.w = dy < -threshold;
+          gameState.current.keys.s = dy > threshold;
+          
+          gameState.current.player.path = [];
+          gameState.current.player.target = null;
+      };
+
+      const handleBuyUpgrade = (id) => {
+          const data = UPGRADES_DB[id];
+          const curLevel = upgrades[id];
+          if (curLevel >= data.maxLevel) return;
+          
+          const cost = Math.floor(data.baseCost * Math.pow(data.costMult, curLevel));
+          if (gems >= cost) {
+              SOUNDS.buy(); // Sound on upgrade
+              setGems(prev => prev - cost);
+              setUpgrades(prev => ({ ...prev, [id]: curLevel + 1 }));
+          } else {
+              SOUNDS.error(); // Sound if can't afford
+          }
+      };
+
+      const handleTravel = (index) => {
+        const mapData = MAPS[index];
+        if (!unlockedMaps[index] && money >= mapData.unlockCost) {
+          SOUNDS.buy(); // Sound on unlock
+          setMoney(prev => prev - mapData.unlockCost);
+          setUnlockedMaps(prev => { const n = [...prev]; n[index] = true; return n; });
+        } else if (!unlockedMaps[index] && money < mapData.unlockCost) {
+          SOUNDS.error();
+          return;
+        }
+        
+        if (unlockedMaps[index] || money >= mapData.unlockCost) {
+          setCurrentMapIndex(index);
+          
+          setTimeout(() => {
+            const activeMap = getActiveMap();
+            gameState.current.player.x = activeMap.entrance.gx;
+            gameState.current.player.y = activeMap.entrance.gy - 1;
+            gameState.current.player.path = [];
+            gameState.current.player.target = null;
+            gameState.current.player.boxes = 0;
+            
+            gameState.current.camera.x = CANVAS_WIDTH / 2 - (activeMap.entrance.gx - (activeMap.entrance.gy - 1)) * (activeMap.tileW / 2);
+            gameState.current.camera.y = CANVAS_HEIGHT / 2 - (activeMap.entrance.gx + (activeMap.entrance.gy - 1)) * (activeMap.tileH / 2);
+            
+            gameState.current.staff = Array(staffCountsRef.current[index]).fill(0).map((_, i) => ({
+                id: Date.now() + i,
+                x: activeMap.entrance.gx + (Math.random()*4 - 2),
+                y: activeMap.entrance.gy - 2 - Math.random()*2,
+                speed: 4, boxes: 0, maxBoxes: 3, path: [], moveTimeout: 0,
+                target: null, targetFacility: null, state: 'IDLE', timer: Math.random(), wobble: 0
+            }));
+
+            gameState.current.npcs = [];
+            gameState.current.guards = [];
+            gameState.current.trash = [];
+            gameState.current.trucks = [];
+            gameState.current.floatingTexts = [];
+            setSelectedFacility(null); 
+            setShowMapModal(false);
+          }, 0);
+        }
+      };
+
+      const handleExpandStore = () => {
+        const cost = 2000 * Math.pow(3, mapExpansions[currentMapIndex]);
+        if (money >= cost) {
+          SOUNDS.buy(); // Expand sound
+          setMoney(prev => prev - cost);
+          setMapExpansions(prev => {
+            const next = [...prev];
+            next[currentMapIndex] += 1;
+            return next;
+          });
+          
+          const activeMap = getActiveMap();
+          const basePos = getBaseIso(activeMap, activeMap.cols/2, activeMap.rows/2, 100);
+          gameState.current.floatingTexts.push({ bx: basePos.x, by: basePos.y, text: "Store Expanded!", color: '#fbbf24', life: 2.5 });
+        }
+      };
+
+      const handleHireStaff = () => {
+        const currentMaxStaff = BASE_MAX_STAFF + (mapExpansions[currentMapIndex] || 0) * 2;
+        if (staffCounts[currentMapIndex] >= currentMaxStaff) return; 
+
+        const cost = 1000 * Math.pow(2, staffCounts[currentMapIndex]);
+        if (money >= cost) {
+          SOUNDS.buy(); // Hire sound
+          setMoney(prev => prev - cost);
+          setStaffCounts(prev => {
+            const next = [...prev];
+            next[currentMapIndex] += 1;
+            return next;
+          });
+          
+          const activeMap = getActiveMap();
+          gameState.current.staff.push({
+             id: Date.now(),
+             x: activeMap.entrance.gx + (Math.random()*4 - 2),
+             y: activeMap.entrance.gy - 2 - Math.random()*2,
+             speed: 4, boxes: 0, maxBoxes: 3, path: [], moveTimeout: 0,
+             target: null, targetFacility: null, state: 'IDLE', timer: 0, wobble: 0
+          });
+
+          const basePos = getBaseIso(activeMap, activeMap.cols/2, activeMap.rows/2, 100);
+          gameState.current.floatingTexts.push({ bx: basePos.x, by: basePos.y, text: "Staff Hired!", color: '#4ade80', life: 2.5 });
+        }
+      };
+
+      const handleInteract = () => {
+        if (!selectedFacility) return; 
+        const activeMap = getActiveMap();
+        const data = activeMap.facilities[selectedFacility];
+        const level = facilities[currentMapIndex][selectedFacility] || 0;
+        const cost = level === 0 ? data.baseCost : Math.floor(data.baseCost * Math.pow(data.costMult, level));
+
+        if (money >= cost) {
+          SOUNDS.buy(); // Build/Upgrade sound
+          setMoney(prev => prev - cost);
+          
+          setFacilities(prev => {
+            const next = [...prev];
+            next[currentMapIndex] = { ...next[currentMapIndex], [selectedFacility]: level + 1 };
+            return next;
+          });
+          
+          if (data.type === 'store') {
+             const sim = getSim(currentMapIndex, selectedFacility);
+             sim.stock = Math.floor(data.gh * 2.5) + (level+1)*10;
+          }
+
+          const basePos = getBaseIso(activeMap, data.gx + data.gw/2, data.gy + data.gh/2, 50);
+          gameState.current.floatingTexts.push({ bx: basePos.x, by: basePos.y, text: level === 0 ? "Built!" : "Level Up!", color: '#ffffff', life: 1.5 });
+
+          for(let i=0; i<30; i++) {
+            gameState.current.particles.push({
+              bx: basePos.x, by: basePos.y, vx: (Math.random() - 0.5) * 300, vy: (Math.random() - 0.5) * 300 - 150,
+              color: ['#fbbf24', '#ffffff', data.colors.top][Math.floor(Math.random() * 3)],
+              life: 1.0 + Math.random(), size: 4 + Math.random() * 6
+            });
+          }
+        } else {
+            SOUNDS.error();
+        }
+      };
+
+      useEffect(() => {
+        if (appMode !== 'playing') return;
+        const handleKeyDown = (e) => { if (gameState.current.keys.hasOwnProperty(e.key)) gameState.current.keys[e.key] = true; };
+        const handleKeyUp = (e) => { if (gameState.current.keys.hasOwnProperty(e.key)) gameState.current.keys[e.key] = false; };
+        window.addEventListener('keydown', handleKeyDown); window.addEventListener('keyup', handleKeyUp);
+        return () => { window.removeEventListener('keydown', handleKeyDown); window.removeEventListener('keyup', handleKeyUp); };
+      }, [appMode]);
+
+      const handlePointerDown = (e) => {
+        // Init audio context on first user click just in case
+        initAudio();
+        
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        const activeMap = getActiveMap();
+        const mIdx = mapIndexRef.current;
+        const scaleX = CANVAS_WIDTH / rect.width;
+        const scaleY = CANVAS_HEIGHT / rect.height;
+        
+        const worldPos = toWorld(
+           activeMap, 
+           (e.clientX - rect.left) * scaleX, 
+           (e.clientY - rect.top) * scaleY, 
+           gameState.current.camera.x, 
+           gameState.current.camera.y
+        );
+
+        let clickedShoplifter = null;
+        for (let i = 0; i < gameState.current.npcs.length; i++) {
+            const npc = gameState.current.npcs[i];
+            if (npc.isShoplifter && npc.state === 'FLEEING_MOVE') {
+                if (getDistance(worldPos.x, worldPos.y, npc.x, npc.y) < 2.0) {
+                    clickedShoplifter = i;
+                    break;
+                }
+            }
+        }
+
+        if (clickedShoplifter !== null) {
+            const npc = gameState.current.npcs[clickedShoplifter];
+            gameState.current.npcs.splice(clickedShoplifter, 1);
+            addMoney(50);
+            SOUNDS.coin(); // Catch shoplifter sound
+            const bPos = getBaseIso(activeMap, npc.x, npc.y, 45);
+            gameState.current.floatingTexts.push({ bx: bPos.x, by: bPos.y, text: "Busted! +$50", color: '#4ade80', life: 1.5 });
+            return; 
+        }
+        
+        let clickedFac = null;
+        const sortedFacs = Object.values(activeMap.facilities).sort((a,b) => (b.gx + b.gy) - (a.gx + a.gy));
+        
+        for (const fac of sortedFacs) {
+          if (worldPos.x >= fac.gx - 1.5 && worldPos.x <= fac.gx + fac.gw &&
+              worldPos.y >= fac.gy - 1.5 && worldPos.y <= fac.gy + fac.gh) {
+              clickedFac = fac.id;
+              break;
+          }
+        }
+
+        if (clickedFac) {
+          setSelectedFacility(clickedFac); 
+          gameState.current.player.path = []; 
+        } else {
+          setSelectedFacility(null); 
+          
+          let destX = Math.max(0.5, Math.min(activeMap.cols - 0.5, worldPos.x));
+          let destY = Math.max(0.5, Math.min(activeMap.rows + 7.0, worldPos.y)); 
+
+          const dzX = activeMap.entrance.gx - 3.75;
+          const dzY = activeMap.rows + 1.25;
+          if (destX > dzX - 1.25 && destX < dzX + 1.25 && destY > dzY - 0.75 && destY < dzY + 0.75) {
+              destY = dzY + 1.5; 
+          }
+          
+          gameState.current.player.path = getPath(
+              gameState.current.player.x, gameState.current.player.y, 
+              destX, destY, 
+              activeMap.entrance.gx + 1.1, MAPS[mIdx].rows, activeMap.rows
+          );
+        }
+      };
+
+      useEffect(() => {
+        if (!hasLoaded || appMode !== 'playing') return; 
+
+        let animationFrameId;
+        const frameDelay = 1000 / TARGET_FPS;
+        let lastRenderTime = performance.now();
+
+        const gameLoop = (currentTime) => {
+          animationFrameId = requestAnimationFrame(gameLoop);
+          
+          const elapsed = currentTime - lastRenderTime;
+          if (elapsed < frameDelay) return;
+          lastRenderTime = currentTime - (elapsed % frameDelay);
+
+          const dt = Math.min((currentTime - gameState.current.lastTime) / 1000, 0.1);
+          gameState.current.lastTime = currentTime;
+          update(dt);
+          draw();
+        };
+
+        const update = (dt) => {
+          const state = gameState.current;
+          const { player, keys, camera, staff, trash, trucks } = state;
+          const mIdx = mapIndexRef.current;
+          const map = getActiveMap();
+          const baseRows = MAPS[mIdx].rows;
+          const eCols = map.cols;
+          const eRows = map.rows;
+          const eEntrance = map.entrance;
+          const facLevels = facilitiesRef.current[mIdx] || {};
+
+          // --- Guard Spawn Logic ---
+          if (state.guards === undefined) state.guards = [];
+          const secLvl = facLevels['security'] || 0;
+          if (secLvl > 0 && state.guards.length === 0) {
+              const secFac = map.facilities['security'];
+              if (secFac) {
+                  state.guards.push({
+                      id: 'guard_1',
+                      x: secFac.gx + secFac.gw/2,
+                      y: secFac.gy + secFac.gh/2 + 1,
+                      speed: 4 + (secLvl * 0.5),
+                      catchRadius: 2 + (secLvl * 1.5),
+                      state: 'IDLE',
+                      path: [], target: null, wobble: 0, timer: 0, moveTimeout: 0
+                  });
+              }
+          } else if (secLvl === 0 && state.guards.length > 0) {
+              state.guards = [];
+          }
+
+          // --- Tutorial Progress Check ---
+          if (tutRef.current === 1 && (keys.w || keys.a || keys.s || keys.d || keys.ArrowUp || keys.ArrowDown || keys.ArrowLeft || keys.ArrowRight || player.path.length > 0)) {
+              tutRef.current = 2; setTutorialStep(2); SOUNDS.tutorial();
+          }
+          if (tutRef.current === 2) {
+              const hasBuiltStore = Object.keys(facLevels).some(id => facLevels[id] > 0 && map.facilities[id].type === 'store');
+              if (hasBuiltStore) { tutRef.current = 3; setTutorialStep(3); SOUNDS.tutorial(); }
+          }
+          if (tutRef.current === 4 && player.boxes > 0) {
+              tutRef.current = 5; setTutorialStep(5); SOUNDS.tutorial();
+          }
+
+          const curSpeedLvl = upgradesRef.current?.speed || 0;
+          const curTruckLvl = upgradesRef.current?.truck || 0;
+          const curCharismaLvl = upgradesRef.current?.charisma || 0;
+          
+          player.speed = 6 * (1 + (curSpeedLvl * 0.2));
+
+          state.timeOfDay += dt * 0.1;
+          if (state.timeOfDay >= 24) state.timeOfDay -= 24;
+          const isStoreOpen = state.timeOfDay >= 6 && state.timeOfDay < 22;
+
+          const clockEl = document.getElementById('game-clock');
+          if (clockEl) {
+              const h = Math.floor(state.timeOfDay);
+              const m = Math.floor((state.timeOfDay - h) * 60);
+              const ampm = h >= 12 && h < 24 ? 'PM' : 'AM';
+              const displayH = h % 12 === 0 ? 12 : h % 12;
+              const displayM = m.toString().padStart(2, '0');
+              clockEl.innerText = `${displayH}:${displayM} ${ampm}`;
+              
+              const statusEl = document.getElementById('store-status');
+              if (statusEl) {
+                  statusEl.innerText = isStoreOpen ? 'OPEN' : 'CLOSED';
+                  statusEl.className = `font-black text-xs md:text-sm ml-1 md:ml-2 ${isStoreOpen ? 'text-green-400' : 'text-red-400'}`;
+              }
+          }
+
+          let attrMult = 1.0;
+          Object.keys(map.facilities).forEach(key => {
+              const fac = map.facilities[key];
+              const lvl = facLevels[key] || 0;
+              if (fac.type === 'decoration' && lvl > 0) {
+                  attrMult += fac.attrBonus * lvl;
+              }
+          });
+
+          if (player.boxes === undefined) player.boxes = 0;
+          if (player.maxBoxes === undefined) player.maxBoxes = 3;
+          if (player.interactTimer === undefined) player.interactTimer = 0;
+          if (state.supplies === undefined) state.supplies = 15;
+          if (!state.trash) state.trash = [];
+          if (!state.trucks) state.trucks = [];
+
+          const targetCamX = CANVAS_WIDTH / 2 - (player.x - player.y) * (map.tileW / 2);
+          const targetCamY = CANVAS_HEIGHT / 2 - (player.x + player.y) * (map.tileH / 2);
+          camera.x += (targetCamX - camera.x) * 5 * dt;
+          camera.y += (targetCamY - camera.y) * 5 * dt;
+
+          const dzX = eEntrance.gx - 3.75;
+          const dzY = eRows + 1.25;
+          let moneySpentThisFrame = 0;
+
+          const truckSpawnRate = isStoreOpen ? 0.003 : 0.01;
+          if (trucks.length === 0 && state.supplies < 10 && Math.random() < truckSpawnRate) {
+              trucks.push({
+                  x: dzX - 0.4, y: eRows + 14, speed: 4.5, state: 'ARRIVING', timer: 0, particleTimer: 0
+              });
+          }
+
+          for (let i = trucks.length - 1; i >= 0; i--) {
+              const t = trucks[i];
+              if (t.state === 'ARRIVING') {
+                  t.y -= t.speed * dt;
+                  if (t.y <= dzY + 0.6) {
+                      t.y = dzY + 0.6; t.state = 'WAITING';
+                  }
+              } else if (t.state === 'UNLOADING') {
+                  t.timer -= dt; t.particleTimer += dt;
+                  const totalBoxesToDrop = 10 + (curTruckLvl * 5);
+                  const dropInterval = 3.0 / totalBoxesToDrop;
+
+                  if (t.particleTimer > dropInterval) {
+                      t.particleTimer -= dropInterval; 
+                      state.supplies++; 
+                      const bPos = getBaseIso(map, t.x + 0.9, t.y + 1.5, 40);
+                      state.floatingTexts.push({ bx: bPos.x, by: bPos.y, text: "📦", color: '#fff', life: 0.6 });
+                  }
+                  if (t.timer <= 0) t.state = 'LEAVING';
+              } else if (t.state === 'LEAVING') {
+                  t.y += t.speed * dt;
+                  if (t.y > eRows + 14) trucks.splice(i, 1);
+              }
+          }
+
+          const constrainEntity = (ent) => {
+              const r = 0.35; 
+              ent.x = Math.max(0.5, Math.min(eCols - 0.6, ent.x));
+              ent.y = Math.max(0.5, Math.min(eRows + 6.8, ent.y)); 
+
+              const resolveAABB = (bx, by, bw, bh) => {
+                  if (ent.x + r > bx && ent.x - r < bx + bw && ent.y + r > by && ent.y - r < by + bh) {
+                      const overlapLeft = (ent.x + r) - bx;
+                      const overlapRight = (bx + bw) - (ent.x - r);
+                      const overlapTop = (ent.y + r) - by;
+                      const overlapBottom = (by + bh) - (ent.y - r);
+
+                      const minOverlap = Math.min(overlapLeft, overlapRight, overlapTop, overlapBottom);
+                      if (minOverlap === overlapLeft) ent.x -= overlapLeft;
+                      else if (minOverlap === overlapRight) ent.x += overlapRight;
+                      else if (minOverlap === overlapTop) ent.y -= overlapTop;
+                      else if (minOverlap === overlapBottom) ent.y += overlapBottom;
+                  }
+              };
+
+              const doorLeft = eEntrance.gx - 0.2;
+              const doorRight = eEntrance.gx + 2.2;
+              const inDoorGap = ent.x > doorLeft && ent.x < doorRight;
+
+              if (!inDoorGap) {
+                  const wallInside = eRows - 0.6;
+                  const wallOutside = eRows + 0.4;
+                  if (ent.y > wallInside && ent.y < wallOutside) {
+                      if (ent.y < eRows - 0.1) ent.y = wallInside;
+                      else ent.y = wallOutside;
+                  }
+              }
+
+              Object.values(map.facilities).forEach(fac => {
+                  if ((facLevels[fac.id] || 0) > 0) resolveAABB(fac.gx, fac.gy, fac.gw, fac.gh);
+              });
+              
+              resolveAABB(dzX - 1.25, dzY - 0.75, 2.5, 1.5);
+              
+              for (let px = 0; px < eCols; px += 3) {
+                 if (px >= eEntrance.gx - 4 && px <= eEntrance.gx + 2) continue;
+                 if ((px * 17) % 5 === 0) continue; 
+                 resolveAABB(px + 0.2, eRows + 1.5, 1.6, 2.6);
+              }
+              trucks.forEach(t => resolveAABB(t.x, t.y, 1.8, 4.5));
+          };
+
+          const moveEntity = (ent) => {
+              if (ent.path && ent.path.length > 0) ent.target = ent.path[0];
+              if (!ent.target) return false;
+
+              let moved = false;
+              const speed = ent.speed * dt;
+              const dx = ent.target.x - ent.x;
+              const dy = ent.target.y - ent.y;
+              const dist = Math.hypot(dx, dy);
+
+              if (dist > 0.2) { 
+                  const stepX = (dx / dist) * Math.min(speed, dist);
+                  const stepY = (dy / dist) * Math.min(speed, dist);
+                  
+                  const oldX = ent.x;
+                  ent.x += stepX;
+                  constrainEntity(ent);
+                  const movedX = Math.abs(ent.x - oldX) > 0.001;
+
+                  const oldY = ent.y;
+                  ent.y += stepY;
+                  constrainEntity(ent);
+                  const movedY = Math.abs(ent.y - oldY) > 0.001;
+
+                  if (!movedX && !movedY) {
+                      ent.x += (dy / dist) * speed * 0.8;
+                      constrainEntity(ent);
+                      ent.y -= (dx / dist) * speed * 0.8;
+                      constrainEntity(ent);
+                  }
+                  moved = true;
+              } else {
+                  if (ent.path && ent.path.length > 0) {
+                      ent.path.shift();
+                      if (ent.path.length > 0) {
+                          ent.target = ent.path[0];
+                          moved = true;
+                      } else {
+                          ent.target = null;
+                      }
+                  } else {
+                      ent.target = null;
+                  }
+              }
+              if (moved) ent.wobble += dt * 12; else ent.wobble = 0;
+              return moved;
+          };
+
+          let vx = 0, vy = 0;
+          if (keys.w || keys.ArrowUp) { vx -= 1; vy -= 1; }
+          if (keys.s || keys.ArrowDown) { vx += 1; vy += 1; }
+          if (keys.a || keys.ArrowLeft) { vx -= 1; vy += 1; }
+          if (keys.d || keys.ArrowRight) { vx += 1; vy -= 1; }
+
+          const prevWobble = player.wobble; 
+
+          if (vx !== 0 || vy !== 0) {
+              player.path = [];
+              player.target = null;
+              const len = Math.hypot(vx, vy);
+              const stepX = (vx / len) * player.speed * dt;
+              const stepY = (vy / len) * player.speed * dt;
+              
+              player.x += stepX;
+              constrainEntity(player);
+              player.y += stepY;
+              constrainEntity(player);
+
+              player.wobble += dt * 18;
+          } else {
+              moveEntity(player);
+          }
+
+          if (Math.floor(player.wobble / Math.PI) > Math.floor(prevWobble / Math.PI)) {
+              SOUNDS.step();
+          }
+
+          let minDistToDoor = 999;
+          const doorCenterX = eEntrance.gx + 1;
+          const doorCenterY = eRows;
+          [state.player, ...state.staff, ...state.guards, ...state.npcs].forEach(ent => {
+              const d = getDistance(ent.x, ent.y, doorCenterX, doorCenterY);
+              if (d < minDistToDoor) minDistToDoor = d;
+          });
+          let targetDoorOpen = Math.max(0, Math.min(1, (3.5 - minDistToDoor)));
+          if (state.doorOpen === undefined) state.doorOpen = 0;
+          state.doorOpen += (targetDoorOpen - state.doorOpen) * 10 * dt;
+          
+          let closestFacility = null;
+          let minDistance = state.nearbyThreshold;
+          let cashCollectedThisFrame = 0;
+          let isInteracting = false;
+
+          if (getDistance(player.x, player.y, dzX, dzY) < 2.5) {
+              const waitingTruck = trucks.find(t => t.state === 'WAITING');
+              
+              if (waitingTruck && moneyRef.current >= 20) {
+                  isInteracting = true;
+                  player.interactTimer += dt;
+                  if (player.interactTimer > 0.8) {
+                      moneySpentThisFrame += 20;
+                      waitingTruck.state = 'UNLOADING';
+                      waitingTruck.timer = 3.0; 
+                      player.interactTimer = 0;
+                      SOUNDS.place(); 
+                      const bPos = getBaseIso(map, waitingTruck.x + 0.9, waitingTruck.y + 1.5, 60);
+                      state.floatingTexts.push({ bx: bPos.x, by: bPos.y, text: "-$20", color: '#ef4444', life: 1.0 });
+                  }
+              } 
+              else if (!waitingTruck && player.boxes < player.maxBoxes && state.supplies > 0) {
+                  isInteracting = true;
+                  player.interactTimer += dt;
+                  if (player.interactTimer > 0.4) {
+                      player.boxes++;
+                      state.supplies--;
+                      player.interactTimer = 0;
+                      SOUNDS.place(); 
+                      const pPos = getBaseIso(map, player.x, player.y, 45);
+                      state.floatingTexts.push({ bx: pPos.x, by: pPos.y, text: "+📦", color: '#fcd34d', life: 0.8 });
+                  }
+              }
+          }
+
+          Object.values(map.facilities).forEach(fac => {
+            let dist;
+            if (fac.type === 'store' || fac.type === 'security' || fac.type === 'decoration') {
+                const clampX = Math.max(fac.gx, Math.min(player.x, fac.gx + fac.gw));
+                const clampY = Math.max(fac.gy, Math.min(player.y, fac.gy + fac.gh));
+                dist = getDistance(player.x, player.y, clampX, clampY);
+            } else {
+                const interactX = fac.gx + fac.gw / 2;
+                const interactY = fac.gy - 0.5;
+                dist = getDistance(player.x, player.y, interactX, interactY);
+            }
+            
+            if (dist < minDistance) { minDistance = dist; closestFacility = fac.id; }
+
+            if (dist <= 2.0 && (facLevels[fac.id]||0) > 0) {
+               const sim = getSim(mIdx, fac.id);
+               const basePos = getBaseIso(map, fac.gx + fac.gw/2, fac.gy + fac.gh/2, 60);
+
+               if (fac.type === 'store') {
+                 const maxStock = Math.floor(fac.gh * 2.5) + facLevels[fac.id] * 10;
+                 if (sim.stock < maxStock && player.boxes > 0) {
+                    isInteracting = true;
+                    player.interactTimer += dt;
+                    if (player.interactTimer > 0.3) {
+                       player.boxes--;
+                       sim.stock = Math.min(maxStock, sim.stock + 15);
+                       player.interactTimer = 0;
+                       SOUNDS.place(); 
+                       state.floatingTexts.push({ bx: basePos.x, by: basePos.y, text: "📦 Placed!", color: '#3b82f6', life: 0.8 });
+                       
+                       if (tutRef.current === 5) { tutRef.current = 6; setTutorialStep(6); SOUNDS.tutorial(); }
+                    }
+                 }
+               } else if (fac.type === 'register') {
+                 if (sim.cash > 0) {
+                    isInteracting = true;
+                    player.interactTimer += dt;
+                    if (player.interactTimer > 0.2) {
+                       cashCollectedThisFrame += sim.cash;
+                       SOUNDS.coin(); 
+                       state.floatingTexts.push({ bx: basePos.x, by: basePos.y, text: `+$${sim.cash}`, color: '#4ade80', life: 1.2 });
+                       sim.cash = 0;
+                       player.interactTimer = 0;
+                       
+                       if (tutRef.current === 3) { tutRef.current = 4; setTutorialStep(4); SOUNDS.tutorial(); }
+                    }
+                 }
+               }
+            }
+          });
+          
+          setNearbyFacility(prev => prev !== closestFacility ? closestFacility : prev);
+
+          for (let i = state.trash.length - 1; i >= 0; i--) {
+              const t = state.trash[i];
+              if (getDistance(player.x, player.y, t.x, t.y) < 1.5) {
+                  isInteracting = true;
+                  t.progress += dt * 1.5; 
+                  if (t.progress >= 1.0) {
+                      state.trash.splice(i, 1);
+                      cashCollectedThisFrame += 2; 
+                      SOUNDS.trash(); 
+                      let extraDrop = "";
+                      if (Math.random() < 0.15) {
+                          addGems(1);
+                          extraDrop = " +1💎";
+                      }
+                      const pPos = getBaseIso(map, t.x, t.y, 45);
+                      state.floatingTexts.push({ bx: pPos.x, by: pPos.y, text: `Cleaned! +$2${extraDrop}`, color: '#4ade80', life: 1.0 });
+                  }
+              }
+          }
+
+          if (!isInteracting) {
+              player.interactTimer = 0; 
+          }
+
+          // --- Guard AI ---
+          state.guards.forEach(g => {
+              g.speed = 4 + (secLvl * 0.5);
+              g.catchRadius = 2 + (secLvl * 1.5);
+              
+              let targetThief = null;
+              let minDistToThief = 999;
+              
+              for(let i=0; i<state.npcs.length; i++) {
+                  const npc = state.npcs[i];
+                  if (npc.isShoplifter && npc.state === 'FLEEING_MOVE') {
+                      const dist = getDistance(g.x, g.y, npc.x, npc.y);
+                      if (dist < minDistToThief && dist < 15) { 
+                          minDistToThief = dist;
+                          targetThief = npc;
+                      }
+                  }
+              }
+
+              if (targetThief) {
+                  g.state = 'CHASING';
+                  g.path = getPath(g.x, g.y, targetThief.x, targetThief.y, eEntrance.gx + 1.1, baseRows, eRows);
+                  g.speed = 5 + (secLvl * 0.8); 
+              } else {
+                  if (g.state === 'CHASING') {
+                      g.state = 'IDLE'; g.timer = 0.5; g.path = [];
+                  }
+              }
+
+              if (g.state.includes('MOVE') || g.state === 'CHASING') {
+                   g.moveTimeout += dt;
+                   if (g.moveTimeout > 15.0 && g.state !== 'CHASING') { 
+                       g.state = 'IDLE'; g.timer = 1.0; g.path = []; g.moveTimeout = 0;
+                   }
+              } else {
+                   g.moveTimeout = 0;
+              }
+
+              if (g.state === 'IDLE') {
+                  g.timer -= dt;
+                  if (g.timer <= 0) {
+                      g.timer = 1.0;
+                      if (Math.random() < 0.5) {
+                          const targetX = Math.max(1.5, Math.min(eCols - 1.5, g.x + (Math.random()*12 - 6)));
+                          const targetY = Math.max(1.5, Math.min(eRows - 1.5, g.y + (Math.random()*12 - 6)));
+                          g.path = getPath(g.x, g.y, targetX, targetY, eEntrance.gx + 1.1, baseRows, eRows);
+                          g.state = 'WANDERING_MOVE';
+                      }
+                  }
+              } else if (g.state === 'WANDERING_MOVE' || g.state === 'CHASING') {
+                  if (!moveEntity(g)) { 
+                      if (g.state === 'WANDERING_MOVE') { g.state = 'IDLE'; g.timer = 1.0; }
+                  }
+              }
+          });
+
+          // --- Staff AI ---
+          for (let i = 0; i < staff.length; i++) {
+             const s = staff[i];
+             if (s.boxes === undefined) s.boxes = 0;
+             if (s.maxBoxes === undefined) s.maxBoxes = 3;
+             if (s.moveTimeout === undefined) s.moveTimeout = 0;
+
+             if (s.state.includes('MOVE')) {
+                 s.moveTimeout += dt;
+                 if (s.moveTimeout > 15.0) { 
+                     s.state = 'IDLE'; s.timer = 1.0; s.path = []; s.moveTimeout = 0;
+                 }
+             } else {
+                 s.moveTimeout = 0;
+             }
+
+             if (s.state === 'IDLE') {
+                s.timer -= dt;
+                if (s.timer <= 0) {
+                   let candidates = [];
+                   Object.values(map.facilities).forEach(fac => {
+                      if ((facLevels[fac.id]||0) > 0) {
+                         const sim = getSim(mIdx, fac.id);
+                         if (fac.type === 'store') {
+                            const maxStock = Math.floor(fac.gh * 2.5) + facLevels[fac.id] * 10;
+                            if (sim.stock < maxStock * 0.5) candidates.push({ id: fac.id, fac });
+                         } else if (fac.type === 'register') {
+                            if (sim.cash > 0 && s.boxes === 0) candidates.push({ id: fac.id, fac }); 
+                         }
+                      }
+                   });
+
+                   if (candidates.length > 0) {
+                      const task = candidates[Math.floor(Math.random() * candidates.length)];
+                      s.targetFacility = task.id;
+
+                      if (task.fac.type === 'store') {
+                          let sideX = task.fac.gx - 0.5;
+                          if (task.fac.gx <= 1) sideX = task.fac.gx + task.fac.gw + 0.5;
+                          const sideY = task.fac.gy + task.fac.gh / 2;
+
+                          if (s.boxes === 0) {
+                              const targetX = dzX + 1.5; 
+                              const targetY = dzY; 
+                              s.path = getPath(s.x, s.y, targetX, targetY, eEntrance.gx + 1.1, baseRows, eRows);
+                              s.state = 'FETCH_BOXES_MOVE';
+                          } else {
+                              s.path = getPath(s.x, s.y, sideX, sideY, eEntrance.gx + 1.1, baseRows, eRows);
+                              s.state = 'RESTOCK_MOVE';
+                          }
+                      } else {
+                          const targetX = task.fac.gx + task.fac.gw / 2; 
+                          const targetY = task.fac.gy - 1.0; 
+                          s.path = getPath(s.x, s.y, targetX, targetY, eEntrance.gx + 1.1, baseRows, eRows);
+                          s.state = 'REG_MOVE';
+                      }
+                   } else {
+                      s.timer = 1.0;
+                      if (Math.random() < 0.3) {
+                         const targetX = Math.max(1.5, Math.min(eCols - 1.5, s.x + (Math.random()*6 - 3)));
+                         const targetY = Math.max(1.5, Math.min(eRows - 1.5, s.y + (Math.random()*6 - 3)));
+                         s.path = getPath(s.x, s.y, targetX, targetY, eEntrance.gx + 1.1, baseRows, eRows);
+                         s.state = 'WANDERING_MOVE';
+                      }
+                   }
+                }
+             } else if (s.state === 'WANDERING_MOVE') {
+                if (!moveEntity(s)) { s.state = 'IDLE'; s.timer = 1.0; }
+             } else if (s.state === 'FETCH_BOXES_MOVE') {
+                if (!moveEntity(s)) { 
+                    if (state.supplies > 0) {
+                        s.state = 'PICKING_BOXES'; s.timer = 1.5; 
+                    } else {
+                        s.state = 'IDLE'; s.timer = 2.0; 
+                    }
+                }
+             } else if (s.state === 'PICKING_BOXES') {
+                s.timer -= dt;
+                if (s.timer <= 0) { 
+                    const taken = Math.min(s.maxBoxes, state.supplies);
+                    if (taken > 0) {
+                        s.boxes = taken; 
+                        state.supplies -= taken;
+                        s.state = 'IDLE'; s.timer = 0.1; 
+                    } else {
+                        s.state = 'IDLE'; s.timer = 2.0;
+                    }
+                }
+             } else if (s.state === 'RESTOCK_MOVE') {
+                if (!moveEntity(s)) { s.state = 'WORKING_RESTOCK'; s.timer = 1.0; }
+             } else if (s.state === 'WORKING_RESTOCK') {
+                s.timer -= dt;
+                if (s.timer <= 0) {
+                   const fac = map.facilities[s.targetFacility];
+                   const sim = getSim(mIdx, s.targetFacility);
+                   const maxStock = Math.floor(fac.gh * 2.5) + facLevels[s.targetFacility] * 10;
+                   sim.stock = Math.min(maxStock, sim.stock + s.boxes * 15);
+                   s.boxes = 0;
+                   const basePos = getBaseIso(map, fac.gx + fac.gw/2, fac.gy + fac.gh/2, 60);
+                   state.floatingTexts.push({ bx: basePos.x, by: basePos.y, text: "Restocked!", color: '#3b82f6', life: 1.0 });
+                   s.targetFacility = null; s.state = 'IDLE'; s.timer = 0.5;
+                }
+             } else if (s.state === 'REG_MOVE') {
+                if (!moveEntity(s)) { s.state = 'WORKING_REG'; s.timer = 1.0; }
+             } else if (s.state === 'WORKING_REG') {
+                s.timer -= dt;
+                if (s.timer <= 0) {
+                   const sim = getSim(mIdx, s.targetFacility);
+                   if (sim.cash > 0) {
+                      cashCollectedThisFrame += sim.cash;
+                      SOUNDS.coin(); 
+                      const basePos = getBaseIso(map, map.facilities[s.targetFacility].gx + map.facilities[s.targetFacility].gw/2, map.facilities[s.targetFacility].gy + map.facilities[s.targetFacility].gh/2, 60);
+                      state.floatingTexts.push({ bx: basePos.x, by: basePos.y, text: `+$${sim.cash}`, color: '#4ade80', life: 1.2 });
+                      sim.cash = 0;
+                   }
+                   s.targetFacility = null; s.state = 'IDLE'; s.timer = 0.5;
+                }
+             }
+          }
+
+          if (cashCollectedThisFrame > 0) addMoney(cashCollectedThisFrame);
+          if (moneySpentThisFrame > 0) setMoney(prev => prev - moneySpentThisFrame);
+
+          const unlockedStores = Object.keys(facLevels).filter(id => facLevels[id] > 0 && map.facilities[id].type === 'store');
+          
+          if (isStoreOpen && unlockedStores.length > 0 && state.npcs.length < 10 + (unlockedStores.length * 5)) {
+            if (Math.random() < 0.04 * Math.sqrt(attrMult)) {
+              const numItems = Math.floor(Math.random() * Math.min(3, unlockedStores.length)) + 1;
+              const shoppingList = [...unlockedStores].sort(() => 0.5 - Math.random()).slice(0, numItems);
+              const firstTarget = shoppingList.shift();
+              
+              const store = map.facilities[firstTarget];
+              const hairColors = ['#fcd34d', '#78350f', '#0f172a', '#dc2626', '#d97706', '#9333ea'];
+              
+              const isShoplifter = Math.random() < 0.08; 
+              
+              const spawnX = eEntrance.gx + (Math.random()*1.5);
+              const spawnY = eEntrance.gy + 5.5; 
+              
+              let destX = store.gx - 0.8;
+              if (store.gx < 2) destX = store.gx + store.gw + 0.8;
+              const destY = store.gy + 1 + Math.random()*(store.gh-2);
+
+              state.npcs.push({
+                id: Math.random(),
+                isShoplifter,
+                x: spawnX, y: spawnY, 
+                speed: (isShoplifter ? 2.5 : 1.5) + Math.random() * 0.8,
+                color: isShoplifter ? '#334155' : `hsl(${Math.random() * 360}, 80%, 65%)`,
+                hair: isShoplifter ? '#020617' : hairColors[Math.floor(Math.random() * hairColors.length)],
+                state: 'SHOPPING_MOVE', targetFacility: firstTarget, shoppingList: shoppingList,
+                path: getPath(spawnX, spawnY, destX, destY, eEntrance.gx + 1.1, baseRows, eRows),
+                timer: 0, cartValue: 0, wobble: Math.random() * Math.PI * 2, moveTimeout: 0
+              });
+            }
+          }
+
+          for (let i = state.npcs.length - 1; i >= 0; i--) {
+            const npc = state.npcs[i];
+            
+            if (npc.state.includes('MOVE')) {
+                npc.moveTimeout += dt;
+                if (npc.moveTimeout > 25.0 * attrMult) { 
+                    npc.state = 'LEAVING_MOVE';
+                    const destX = eEntrance.gx + (Math.random()*1.5); const destY = eEntrance.gy + 6.5; 
+                    npc.path = getPath(npc.x, npc.y, destX, destY, eEntrance.gx + 1.1, baseRows, eRows);
+                    npc.moveTimeout = 0;
+                }
+            } else {
+                npc.moveTimeout = 0;
+            }
+
+            const isMoving = moveEntity(npc);
+
+            if ((npc.state === 'SHOPPING_MOVE' || npc.state === 'REG_MOVE') && Math.random() < 0.02 * dt) {
+                state.trash.push({ x: npc.x, y: npc.y, progress: 0 });
+            }
+
+            if (npc.isShoplifter && npc.state === 'FLEEING_MOVE') {
+                let caught = false;
+                
+                // Player catch
+                if (getDistance(player.x, player.y, npc.x, npc.y) < 1.5) caught = true;
+                
+                // Guard catch
+                if (!caught) {
+                    for (const g of state.guards) {
+                        if (getDistance(g.x, g.y, npc.x, npc.y) <= g.catchRadius) {
+                            caught = true;
+                            const gPos = getBaseIso(map, g.x, g.y, 60);
+                            state.floatingTexts.push({ bx: gPos.x, by: gPos.y, text: "Gotcha!", color: '#3b82f6', life: 1.0 });
+                            break;
+                        }
+                    }
+                }
+                
+                if (caught) {
+                    addMoney(50);
+                    SOUNDS.coin(); 
+                    const bPos = getBaseIso(map, npc.x, npc.y, 45);
+                    state.floatingTexts.push({ bx: bPos.x, by: bPos.y, text: "Busted! +$50", color: '#4ade80', life: 1.5 });
+                    state.npcs.splice(i, 1);
+                    continue; 
+                }
+            }
+
+            if (!isMoving) {
+              if (npc.state === 'SHOPPING_MOVE') {
+                 npc.state = 'SHOPPING_WAIT'; npc.timer = 0;
+              }
+              else if (npc.state === 'SHOPPING_WAIT') {
+                const storeSim = getSim(mIdx, npc.targetFacility);
+                
+                if (storeSim.stock <= 0) {
+                   npc.timer += dt;
+                   if (npc.timer > 1.0 * attrMult) {
+                     const basePos = getBaseIso(map, npc.x, npc.y, 45);
+                     state.floatingTexts.push({ bx: basePos.x, by: basePos.y, text: "😠 Empty Shelves!", color: '#ef4444', life: 1.0 });
+                     npc.state = 'LEAVING_MOVE';
+                     const destX = eEntrance.gx + (Math.random()*1.5); const destY = eEntrance.gy + 6.5; 
+                     npc.path = getPath(npc.x, npc.y, destX, destY, eEntrance.gx + 1.1, baseRows, eRows);
+                   }
+                } else {
+                   npc.timer += dt;
+                   const lvl = facLevels[npc.targetFacility];
+                   const serveTime = (map.facilities[npc.targetFacility].baseTimeMs / 1000) * Math.pow(0.95, lvl - 1);
+                   
+                   if (npc.timer >= serveTime) {
+                      storeSim.stock--; 
+                      
+                      if (npc.isShoplifter) {
+                          const basePos = getBaseIso(map, npc.x, npc.y, 45);
+                          state.floatingTexts.push({ bx: basePos.x, by: basePos.y, text: "🏃 Shoplifter!", color: '#ef4444', life: 1.5 });
+                          npc.state = 'FLEEING_MOVE';
+                          npc.speed *= 1.4; 
+                          const destX = eEntrance.gx + (Math.random()*1.5); const destY = eEntrance.gy + 6.5; 
+                          npc.path = getPath(npc.x, npc.y, destX, destY, eEntrance.gx + 1.1, baseRows, eRows);
+                      } else {
+                          npc.cartValue += map.facilities[npc.targetFacility].baseRev * lvl; 
+                          
+                          if (npc.shoppingList.length > 0) {
+                             npc.targetFacility = npc.shoppingList.shift();
+                             const nextStore = map.facilities[npc.targetFacility];
+                             let destX = nextStore.gx - 0.8;
+                             if (nextStore.gx < 2) destX = nextStore.gx + nextStore.gw + 0.8;
+                             const destY = nextStore.gy + 1 + Math.random()*(nextStore.gh-2);
+                             npc.path = getPath(npc.x, npc.y, destX, destY, eEntrance.gx + 1.1, baseRows, eRows);
+                             npc.state = 'SHOPPING_MOVE'; 
+                          } else {
+                             const unlockedRegs = Object.keys(facLevels).filter(id => facLevels[id] > 0 && map.facilities[id].type === 'register');
+                             if (unlockedRegs.length > 0) {
+                               npc.targetFacility = unlockedRegs[Math.floor(Math.random() * unlockedRegs.length)];
+                               const reg = map.facilities[npc.targetFacility];
+                               const destX = reg.gx + reg.gw / 2; 
+                               const destY = reg.gy - 1.0; 
+                               npc.path = getPath(npc.x, npc.y, destX, destY, eEntrance.gx + 1.1, baseRows, eRows);
+                               npc.state = 'REG_MOVE';
+                             } else {
+                               addMoney(npc.cartValue); npc.state = 'LEAVING_MOVE';
+                               const destX = eEntrance.gx + (Math.random()*1.5); const destY = eEntrance.gy + 6.5; 
+                               npc.path = getPath(npc.x, npc.y, destX, destY, eEntrance.gx + 1.1, baseRows, eRows);
+                             }
+                          }
+                      }
+                   }
+                }
+              }
+              else if (npc.state === 'REG_MOVE') {
+                npc.state = 'REG_WAIT'; npc.timer = 0;
+              }
+              else if (npc.state === 'REG_WAIT') {
+                npc.timer += dt;
+                const lvl = facLevels[npc.targetFacility];
+                const checkoutTime = (map.facilities[npc.targetFacility].baseTimeMs / 1000) * Math.pow(0.85, lvl - 1);
+                
+                if (!isStoreOpen && npc.timer > checkoutTime * 1.5) {
+                   npc.cartValue = 0; npc.state = 'LEAVING_MOVE';
+                   const destX = eEntrance.gx + (Math.random()*1.5); const destY = eEntrance.gy + 6.5; 
+                   npc.path = getPath(npc.x, npc.y, destX, destY, eEntrance.gx + 1.1, baseRows, eRows);
+                } else if (npc.timer >= checkoutTime) {
+                   const finalValue = Math.floor(npc.cartValue * (1 + curCharismaLvl * 0.1));
+                   getSim(mIdx, npc.targetFacility).cash += finalValue; 
+                   SOUNDS.coin(); 
+                   
+                   npc.cartValue = 0; npc.state = 'LEAVING_MOVE';
+                   const destX = eEntrance.gx + (Math.random()*1.5); const destY = eEntrance.gy + 6.5; 
+                   npc.path = getPath(npc.x, npc.y, destX, destY, eEntrance.gx + 1.1, baseRows, eRows);
+
+                   if (Math.random() < 0.05) {
+                       const droppedGems = Math.floor(Math.random() * 2) + 1;
+                       addGems(droppedGems);
+                       const bPos = getBaseIso(map, npc.x, npc.y, 60);
+                       state.floatingTexts.push({ bx: bPos.x, by: bPos.y, text: `+${droppedGems} 💎`, color: '#c084fc', life: 1.5 });
+                   }
+                }
+              }
+              else if (npc.state === 'LEAVING_MOVE' || npc.state === 'FLEEING_MOVE') { 
+                if (npc.state === 'FLEEING_MOVE') {
+                   const basePos = getBaseIso(map, npc.x, npc.y, 45);
+                   state.floatingTexts.push({ bx: basePos.x, by: basePos.y, text: "Escaped!", color: '#ef4444', life: 1.0 });
+                }
+                state.npcs.splice(i, 1); 
+              }
+            }
+          }
+
+          for (let i = state.floatingTexts.length - 1; i >= 0; i--) {
+            state.floatingTexts[i].by -= 35 * dt; 
+            state.floatingTexts[i].life -= dt;
+            if (state.floatingTexts[i].life <= 0) state.floatingTexts.splice(i, 1);
+          }
+          for (let i = state.particles.length - 1; i >= 0; i--) {
+            state.particles[i].bx += state.particles[i].vx * dt; 
+            state.particles[i].by += state.particles[i].vy * dt;
+            state.particles[i].vy += 600 * dt; 
+            state.particles[i].life -= dt * 1.0;
+            if (state.particles[i].life <= 0) state.particles.splice(i, 1);
+          }
+        };
+
+        const drawPrism = (ctx, map, gx, gy, z, gw, gh, depth, colors, isWireframe = false) => {
+           const camX = gameState.current.camera.x;
+           const camY = gameState.current.camera.y;
+
+           const p1 = toIso(map, gx, gy, z + depth, camX, camY); 
+           const p2 = toIso(map, gx + gw, gy, z + depth, camX, camY); 
+           const p3 = toIso(map, gx + gw, gy + gh, z + depth, camX, camY); 
+           const p4 = toIso(map, gx, gy + gh, z + depth, camX, camY); 
+
+           const b2 = toIso(map, gx + gw, gy, z, camX, camY); 
+           const b3 = toIso(map, gx + gw, gy + gh, z, camX, camY); 
+           const b4 = toIso(map, gx, gy + gh, z, camX, camY); 
+
+           if (isWireframe) {
+             ctx.strokeStyle = colors.top; ctx.setLineDash([6, 6]); ctx.lineWidth = 3;
+             ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.lineTo(p3.x, p3.y); ctx.lineTo(p4.x, p4.y); ctx.closePath(); ctx.stroke();
+             ctx.setLineDash([]); return;
+           }
+
+           if (z === 0) { 
+             const s1 = toIso(map, gx-0.1, gy-0.1, 0, camX, camY); const s2 = toIso(map, gx+gw+0.2, gy-0.1, 0, camX, camY);
+             const s3 = toIso(map, gx+gw+0.2, gy+gh+0.2, 0, camX, camY); const s4 = toIso(map, gx-0.1, gy+gh+0.2, 0, camX, camY);
+             ctx.fillStyle = 'rgba(0,0,0,0.1)';
+             ctx.beginPath(); ctx.moveTo(s1.x, s1.y); ctx.lineTo(s2.x, s2.y); ctx.lineTo(s3.x, s3.y); ctx.lineTo(s4.x, s4.y); ctx.closePath(); ctx.fill();
+           }
+
+           ctx.fillStyle = colors.top; ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.lineTo(p3.x, p3.y); ctx.lineTo(p4.x, p4.y); ctx.closePath(); ctx.fill();
+           ctx.fillStyle = colors.left; ctx.beginPath(); ctx.moveTo(p4.x, p4.y); ctx.lineTo(p3.x, p3.y); ctx.lineTo(b3.x, b3.y); ctx.lineTo(b4.x, b4.y); ctx.closePath(); ctx.fill();
+           ctx.fillStyle = colors.right; ctx.beginPath(); ctx.moveTo(p3.x, p3.y); ctx.lineTo(p2.x, p2.y); ctx.lineTo(b2.x, b2.y); ctx.lineTo(b3.x, b3.y); ctx.closePath(); ctx.fill();
+           
+           ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1.5;
+           ctx.beginPath(); ctx.moveTo(p4.x, p4.y); ctx.lineTo(p3.x, p3.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+        };
+
+        const drawCharacter = (ctx, map, char, baseColor, isPlayer = false, isStaff = false, isGuard = false) => {
+            const camX = gameState.current.camera.x;
+            const camY = gameState.current.camera.y;
+            
+            const pScale = (1 + Math.sin(char.wobble) * 0.08) * (map.tileW / 60); 
+            const jump = Math.abs(Math.sin(char.wobble)) * 7;
+            const pos = toIso(map, char.x, char.y, jump, camX, camY);
+            
+            const shadow = toIso(map, char.x, char.y, 0, camX, camY);
+            ctx.fillStyle = 'rgba(0,0,0,0.15)';
+            ctx.beginPath(); ctx.ellipse(shadow.x, shadow.y, 14 * pScale, 7 * pScale, 0, 0, Math.PI*2); ctx.fill();
+
+            ctx.save(); ctx.translate(pos.x, pos.y); ctx.scale(pScale, pScale);
+
+            if (char.boxes && char.boxes > 0) {
+               ctx.fillStyle = '#d97706'; 
+               ctx.strokeStyle = '#92400e';
+               for(let i=0; i<char.boxes; i++) {
+                   ctx.fillRect(-7, -29 - i*9, 14, 8);
+                   ctx.strokeRect(-7, -29 - i*9, 14, 8);
+               }
+            }
+
+            if (char.isShoplifter && char.state === 'FLEEING_MOVE') {
+                ctx.fillStyle = '#ef4444'; ctx.font = 'bold 24px sans-serif'; ctx.textAlign = 'center';
+                ctx.fillText("!", 0, -35 + Math.sin(performance.now()/100)*3);
+            }
+
+            ctx.fillStyle = baseColor; ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+            ctx.beginPath(); ctx.arc(0, -10, 9, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+            ctx.fillRect(-9, -10, 18, 10);
+            ctx.beginPath(); ctx.moveTo(-9, -10); ctx.lineTo(-9, 0); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(9, -10); ctx.lineTo(9, 0); ctx.stroke();
+            
+            ctx.fillStyle = 'rgba(0,0,0,0.1)';
+            ctx.beginPath(); ctx.ellipse(0, 0, 9, 4.5, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+
+            ctx.fillStyle = '#fef08a'; 
+            ctx.beginPath(); ctx.arc(0, -17, 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+            
+            if (isPlayer) {
+              ctx.fillStyle = '#1e3a8a'; 
+              ctx.beginPath(); ctx.arc(0, -19, 7, Math.PI, 0); ctx.fill(); ctx.fillRect(-7, -19, 18, 3);
+            } else if (isStaff) {
+              ctx.fillStyle = '#166534'; 
+              ctx.beginPath(); ctx.arc(0, -19, 7, Math.PI, 0); ctx.fill(); ctx.fillRect(-7, -19, 18, 3);
+            } else if (isGuard) {
+              ctx.fillStyle = '#020617'; 
+              ctx.beginPath(); ctx.arc(0, -19, 7, Math.PI, 0); ctx.fill(); ctx.fillRect(-7, -19, 18, 3);
+              ctx.fillStyle = '#eab308'; // Gold badge
+              ctx.beginPath(); ctx.arc(-4, -7, 2, 0, Math.PI*2); ctx.fill();
+            } else {
+              ctx.fillStyle = char.hair; 
+              ctx.beginPath(); ctx.arc(0, -18, 7, Math.PI, 0); ctx.fill();
+            }
+
+            if (char.isShoplifter) {
+                ctx.fillStyle = '#020617';
+                ctx.fillRect(-6, -20, 12, 4);
+            }
+
+            if (char.cartValue > 0) {
+                ctx.fillStyle = '#cbd5e1'; ctx.fillRect(6, -14, 14, 10);
+                ctx.strokeStyle = '#64748b'; ctx.strokeRect(6, -14, 14, 10);
+                ctx.beginPath(); ctx.moveTo(10, -14); ctx.lineTo(10, -4); ctx.moveTo(14, -14); ctx.lineTo(14, -4); ctx.stroke();
+                
+                ctx.fillStyle = '#ef4444'; ctx.fillRect(8, -10, 5, 4); 
+                if (char.cartValue > 100) { ctx.fillStyle = '#f59e0b'; ctx.fillRect(13, -12, 5, 6); } 
+                if (char.cartValue > 500) { ctx.fillStyle = '#3b82f6'; ctx.fillRect(9, -14, 8, 4); } 
+
+                ctx.strokeStyle = '#94a3b8'; ctx.beginPath(); ctx.moveTo(6, -14); ctx.lineTo(3, -18); ctx.stroke();
+                ctx.fillStyle = '#0f172a';
+                ctx.beginPath(); ctx.arc(8, -2, 2.5, 0, Math.PI*2); ctx.arc(18, -2, 2.5, 0, Math.PI*2); ctx.fill();
+            }
+            ctx.restore();
+        };
+
+        const draw = () => {
+          const ctx = canvasRef.current?.getContext('2d');
+          if (!ctx) return;
+          const state = gameState.current;
+          const mIdx = mapIndexRef.current;
+          const map = getActiveMap();
+          const eCols = map.cols;
+          const eRows = map.rows;
+          const eEntrance = map.entrance;
+          const facLevels = facilitiesRef.current[mIdx] || {};
+          const camX = state.camera.x;
+          const camY = state.camera.y;
+
+          const isDark = state.timeOfDay < 8.0 || state.timeOfDay > 17.0;
+          state.lights = []; 
+
+          ctx.fillStyle = '#dbeafe'; 
+          ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+          const renderQueue = [];
+
+          for(let x=-2; x < eCols+2; x++) {
+            for(let y=-2; y < eRows+12; y++) {
+              renderQueue.push({
+                type: 'floor', x, y, zIndex: -1000 + x + y, 
+                draw: () => {
+                  const p1 = toIso(map, x, y, 0, camX, camY); 
+                  const p2 = toIso(map, x+1, y, 0, camX, camY); 
+                  const p3 = toIso(map, x+1, y+1, 0, camX, camY); 
+                  const p4 = toIso(map, x, y+1, 0, camX, camY);
+                  
+                  let cTop = '', cStroke = '';
+                  let isParkingLine = false;
+
+                  if (x >= 0 && x < eCols && y >= 0 && y < eRows) {
+                    const isCheckout = y > eRows - 7;
+                    cTop = isCheckout ? ((x+y)%2===0 ? '#e2e8f0' : '#cbd5e1') : ((x+y)%2===0 ? '#ffffff' : '#f8fafc');
+                    cStroke = '#e2e8f0';
+                  } else if (x >= -2 && x <= eCols + 1 && y === eRows) {
+                    cTop = '#94a3b8'; 
+                    cStroke = '#64748b';
+                  } else if (y > eRows && y <= eRows + 9 && x >= -2 && x <= eCols + 1) {
+                    cTop = '#334155'; 
+                    cStroke = '#1e293b';
+                    if (y >= eRows + 1 && y <= eRows + 4 && x % 3 === 0 && x >= 0 && x <= eCols) {
+                        isParkingLine = true;
+                    }
+                  } else {
+                    cTop = '#4ade80'; 
+                    cStroke = '#22c55e';
+                  }
+
+                  ctx.fillStyle = cTop;
+                  ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.lineTo(p3.x, p3.y); ctx.lineTo(p4.x, p4.y); ctx.closePath(); ctx.fill();
+                  
+                  if (isParkingLine) {
+                     const l1 = toIso(map, x - 0.05, y, 0, camX, camY); 
+                     const l2 = toIso(map, x + 0.05, y, 0, camX, camY); 
+                     const l3 = toIso(map, x + 0.05, y+1, 0, camX, camY); 
+                     const l4 = toIso(map, x - 0.05, y+1, 0, camX, camY);
+                     ctx.fillStyle = '#ffffff';
+                     ctx.beginPath(); ctx.moveTo(l1.x, l1.y); ctx.lineTo(l2.x, l2.y); ctx.lineTo(l3.x, l3.y); ctx.lineTo(l4.x, l4.y); ctx.closePath(); ctx.fill();
+                  }
+
+                  if (y === eRows + 2 && x >= -1 && x <= eCols && x % 2 === 0 && x >= eEntrance.gx - 5 && x <= eEntrance.gx - 2) {
+                     const m1 = toIso(map, x + 0.2, y + 0.4, 0, camX, camY); const m2 = toIso(map, x + 0.8, y + 0.4, 0, camX, camY);
+                     const m3 = toIso(map, x + 0.8, y + 0.6, 0, camX, camY); const m4 = toIso(map, x + 0.2, y + 0.6, 0, camX, camY);
+                     ctx.fillStyle = '#facc15';
+                     ctx.beginPath(); ctx.moveTo(m1.x, m1.y); ctx.lineTo(m2.x, m2.y); ctx.lineTo(m3.x, m3.y); ctx.lineTo(m4.x, m4.y); ctx.closePath(); ctx.fill();
+                  }
+                  
+                  ctx.strokeStyle = cStroke; ctx.lineWidth = 1; ctx.stroke();
+                }
+              });
+            }
+          }
+
+          for (let lx = 0; lx <= eCols; lx += 4) {
+              if (lx >= eEntrance.gx - 2 && lx <= eEntrance.gx + 3) continue; 
+              renderQueue.push({
+                  type: 'streetlamp', isBox: true, gx: lx, gy: eRows + 0.5, gw: 0.2, gh: 0.2,
+                  zIndex: lx + (eRows + 0.5) + 0.2,
+                  draw: () => {
+                      drawPrism(ctx, map, lx, eRows + 0.5, 0, 0.2, 0.2, 35, {top: '#475569', left: '#334155', right: '#1e293b'});
+                      drawPrism(ctx, map, lx - 0.2, eRows + 0.3, 35, 0.6, 0.6, 2, {top: '#fef08a', left: '#fde047', right: '#facc15'});
+                  }
+              });
+              if (isDark) {
+                  state.lights.push(() => {
+                      const lampPos = toIso(map, lx + 0.1, eRows + 0.6, 35, camX, camY);
+                      const grad = ctx.createRadialGradient(lampPos.x, lampPos.y, 0, lampPos.x, lampPos.y, 120);
+                      grad.addColorStop(0, 'rgba(253, 224, 71, 0.5)');
+                      grad.addColorStop(1, 'rgba(253, 224, 71, 0)');
+                      ctx.fillStyle = grad;
+                      ctx.beginPath(); ctx.arc(lampPos.x, lampPos.y, 120, 0, Math.PI*2); ctx.fill();
+                  });
+              }
+          }
+
+          renderQueue.push({
+            type: 'wall_base', zIndex: -2000, 
+            draw: () => {
+               drawPrism(ctx, map, 0, eRows, -10, eCols, 0, 10, {top: '#cbd5e1', left: '#94a3b8', right: '#64748b'});
+               drawPrism(ctx, map, eCols, 0, -10, 0, eRows, 10, {top: '#cbd5e1', left: '#94a3b8', right: '#64748b'});
+            }
+          });
+
+          state.trucks.forEach(t => {
+              renderQueue.push({
+                  type: 'truck', isBox: true, gx: t.x, gy: t.y, gw: 1.8, gh: 4.5,
+                  zIndex: t.x + t.y + 6.3 * 0.1, 
+                  draw: () => {
+                      const shadow = toIso(map, t.x + 0.9, t.y + 2.25, 0, camX, camY);
+                      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+                      ctx.beginPath(); ctx.ellipse(shadow.x, shadow.y, 25 * (map.tileW/60), 45 * (map.tileW/60), 0, 0, Math.PI*2); ctx.fill();
+
+                      drawPrism(ctx, map, t.x, t.y + 1.5, 4, 1.8, 3.0, 24, {top: '#f8fafc', left: '#e2e8f0', right: '#cbd5e1'});
+                      drawPrism(ctx, map, t.x + 0.1, t.y, 4, 1.6, 1.3, 16, {top: '#ef4444', left: '#dc2626', right: '#991b1b'});
+                      drawPrism(ctx, map, t.x - 0.1, t.y + 0.2, 0, 2.0, 0.6, 4, {top: '#1e293b', left: '#0f172a', right: '#020617'});
+                      drawPrism(ctx, map, t.x - 0.1, t.y + 2.0, 0, 2.0, 0.6, 4, {top: '#1e293b', left: '#0f172a', right: '#020617'});
+                      drawPrism(ctx, map, t.x - 0.1, t.y + 3.5, 0, 2.0, 0.6, 4, {top: '#1e293b', left: '#0f172a', right: '#020617'});
+
+                      if (t.state === 'WAITING') {
+                          const uiPos = toIso(map, t.x + 0.9, t.y + 1.5, 80, camX, camY);
+                          ctx.fillStyle = 'rgba(0,0,0,0.8)';
+                          ctx.beginPath(); ctx.roundRect(uiPos.x - 30, uiPos.y - 12, 60, 20, 4); ctx.fill();
+                          ctx.fillStyle = '#4ade80'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
+                          ctx.fillText("PAY $20", uiPos.x, uiPos.y + 3);
+                      }
+
+                      if (isDark) {
+                          state.lights.push(() => {
+                              const l1 = toIso(map, t.x - 0.1, t.y + 4.5, 10, camX, camY);
+                              const l2 = toIso(map, t.x + 1.9, t.y + 4.5, 10, camX, camY);
+                              const l3 = toIso(map, t.x + 3.0, t.y + 8.0, 0, camX, camY);
+                              const l4 = toIso(map, t.x - 1.0, t.y + 8.0, 0, camX, camY);
+                              ctx.fillStyle = 'rgba(253, 224, 71, 0.15)';
+                              ctx.beginPath(); ctx.moveTo(l1.x, l1.y); ctx.lineTo(l2.x, l2.y); ctx.lineTo(l3.x, l3.y); ctx.lineTo(l4.x, l4.y); ctx.closePath(); ctx.fill();
+                          });
+                      }
+                  }
+              });
+          });
+
+          for (let px = 0; px < eCols; px += 3) {
+             if (px >= eEntrance.gx - 4 && px <= eEntrance.gx + 2) continue;
+             if ((px * 17) % 5 === 0) continue; 
+
+             renderQueue.push({
+                 type: 'car', isBox: true, gx: px + 0.2, gy: eRows + 1.5, gw: 1.6, gh: 2.6,
+                 zIndex: px + 0.2 + eRows + 1.5 + 4.2 * 0.1, 
+                 draw: () => {
+                     const carColors = [
+                         {top: '#ef4444', left: '#dc2626', right: '#991b1b'}, 
+                         {top: '#3b82f6', left: '#2563eb', right: '#1d4ed8'}, 
+                         {top: '#eab308', left: '#ca8a04', right: '#854d0e'}, 
+                         {top: '#f8fafc', left: '#e2e8f0', right: '#94a3b8'}, 
+                         {top: '#10b981', left: '#059669', right: '#047857'}  
+                     ];
+                     const color = carColors[(px) % carColors.length];
+                     
+                     const shadow = toIso(map, px + 1.0, eRows + 2.8, 0, camX, camY);
+                     ctx.fillStyle = 'rgba(0,0,0,0.3)';
+                     ctx.beginPath(); ctx.ellipse(shadow.x, shadow.y, 25 * (map.tileW/60), 12 * (map.tileW/60), 0, 0, Math.PI*2); ctx.fill();
+
+                     drawPrism(ctx, map, px + 0.2, eRows + 1.5, 0, 1.6, 2.6, 12, color);
+                     drawPrism(ctx, map, px + 0.3, eRows + 2.0, 12, 1.4, 1.4, 10, {top: '#94a3b8', left: '#0f172a', right: '#1e293b'});
+                     drawPrism(ctx, map, px + 0.3, eRows + 1.45, 6, 0.4, 0.1, 4, {top: '#fef08a', left: '#fef08a', right: '#fde047'});
+                     drawPrism(ctx, map, px + 1.3, eRows + 1.45, 6, 0.4, 0.1, 4, {top: '#fef08a', left: '#fef08a', right: '#fde047'});
+
+                     if (isDark) {
+                         state.lights.push(() => {
+                             const l1 = toIso(map, px + 0.3, eRows + 1.45, 6, camX, camY);
+                             const l2 = toIso(map, px + 1.3, eRows + 1.45, 6, camX, camY);
+                             const l3 = toIso(map, px + 1.8, eRows - 1.5, 0, camX, camY); 
+                             const l4 = toIso(map, px - 0.2, eRows - 1.5, 0, camX, camY);
+                             ctx.fillStyle = 'rgba(253, 224, 71, 0.12)';
+                             ctx.beginPath(); ctx.moveTo(l1.x, l1.y); ctx.lineTo(l2.x, l2.y); ctx.lineTo(l3.x, l3.y); ctx.lineTo(l4.x, l4.y); ctx.closePath(); ctx.fill();
+                             
+                             const b1 = toIso(map, px + 0.5, eRows + 1.45, 6, camX, camY);
+                             const b2 = toIso(map, px + 1.5, eRows + 1.45, 6, camX, camY);
+                             ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                             ctx.beginPath(); ctx.arc(b1.x, b1.y, 2, 0, Math.PI*2); ctx.arc(b2.x, b2.y, 2, 0, Math.PI*2); ctx.fill();
+                         });
+                     }
+                 }
+             });
+          }
+
+          const dzX = eEntrance.gx - 3.75;
+          const dzY = eRows + 1.25;
+          renderQueue.push({
+             type: 'delivery_zone', isBox: true, gx: dzX - 1.25, gy: dzY - 0.75, gw: 2.5, gh: 1.5,
+             zIndex: dzX + dzY,
+             draw: () => {
+                drawPrism(ctx, map, dzX - 1.25, dzY - 0.75, 0, 2.5, 1.5, 2, {top: '#d97706', left: '#b45309', right: '#92400e'});
+                
+                if (state.supplies > 0) {
+                    drawPrism(ctx, map, dzX - 1.05, dzY - 0.55, 2, 0.8, 0.8, 8, {top: '#fcd34d', left: '#fbbf24', right: '#f59e0b'});
+                    if (state.supplies > 3) drawPrism(ctx, map, dzX - 0.05, dzY - 0.55, 2, 0.8, 0.8, 8, {top: '#fcd34d', left: '#fbbf24', right: '#f59e0b'});
+                    if (state.supplies > 6) drawPrism(ctx, map, dzX - 0.55, dzY - 0.35, 10, 0.8, 0.8, 8, {top: '#fcd34d', left: '#fbbf24', right: '#f59e0b'});
+                }
+
+                const uiPos = toIso(map, dzX, dzY, 40, camX, camY);
+                ctx.fillStyle = 'rgba(0,0,0,0.6)';
+                ctx.beginPath(); ctx.roundRect(uiPos.x - 36, uiPos.y - 12, 72, 20, 4); ctx.fill();
+                ctx.fillStyle = '#ffffff'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
+                ctx.fillText(`📦 ${state.supplies} LEFT`, uiPos.x, uiPos.y + 3);
+             }
+          });
+
+          state.trash.forEach(t => {
+              renderQueue.push({
+                  type: 'trash', zIndex: t.x + t.y - 0.1, 
+                  draw: () => {
+                      const pos = toIso(map, t.x, t.y, 0, camX, camY);
+                      ctx.save();
+                      ctx.translate(pos.x, pos.y);
+                      ctx.scale(map.tileW/60, map.tileW/60);
+                      ctx.fillStyle = 'rgba(101, 67, 33, 0.8)';
+                      ctx.beginPath();
+                      ctx.ellipse(0, 0, 12, 6, 0, 0, Math.PI*2);
+                      ctx.fill();
+
+                      if (t.progress > 0) {
+                          ctx.fillStyle = 'rgba(0,0,0,0.6)';
+                          ctx.fillRect(-10, -15, 20, 5);
+                          ctx.fillStyle = '#4ade80';
+                          ctx.fillRect(-9, -14, 18 * t.progress, 3);
+                      }
+                      ctx.restore();
+                  }
+              });
+          });
+
+          Object.values(map.facilities).forEach(fac => {
+            const lvl = facLevels[fac.id] || 0;
+            const isNearby = nearbyFacility === fac.id;
+            const sim = getSim(mIdx, fac.id);
+            
+            renderQueue.push({
+              type: 'facility', 
+              isBox: true, gx: fac.gx, gy: fac.gy, gw: fac.gw, gh: fac.gh,
+              zIndex: fac.gx + fac.gy + (fac.gw + fac.gh)*0.1, 
+              draw: () => {
+                if (lvl === 0) {
+                  drawPrism(ctx, map, fac.gx, fac.gy, 0, fac.gw, fac.gh, 0, fac.colors, true);
+                  const center = toIso(map, fac.gx + fac.gw/2, fac.gy + fac.gh/2, 0, camX, camY);
+                  ctx.fillStyle = '#64748b'; ctx.font = `bold ${16 * (map.tileW/60)}px sans-serif`; ctx.textAlign = 'center';
+                  ctx.fillText("FOR SALE", center.x, center.y);
+                } else {
+                  
+                  if (fac.type === 'store') {
+                    drawPrism(ctx, map, fac.gx, fac.gy, 0, fac.gw, fac.gh, 10, {top: '#f8fafc', left: '#cbd5e1', right: '#94a3b8'});
+                    drawPrism(ctx, map, fac.gx + fac.gw/2 - 0.2, fac.gy + 0.2, 10, 0.4, fac.gh - 0.4, 30, fac.colors); 
+                    
+                    if (sim.stock > 0) {
+                      const itemRows = Math.floor(fac.gh / 1.0);
+                      for(let i=0; i<itemRows; i++) {
+                         const itemColor = fac.items[i % fac.items.length];
+                         const iy = fac.gy + 0.4 + (i * 1.0);
+                         drawPrism(ctx, map, fac.gx + 0.2, iy, 20, 0.6, 0.6, 6, {top: itemColor.cTop, left: itemColor.cLeft, right: itemColor.cRight});
+                         drawPrism(ctx, map, fac.gx + fac.gw - 0.8, iy, 20, 0.6, 0.6, 6, {top: itemColor.cTop, left: itemColor.cLeft, right: itemColor.cRight});
+                      }
+                    }
+                    
+                    const uiPos = toIso(map, fac.gx + fac.gw/2, fac.gy + fac.gh/2, 90, camX, camY);
+                    const maxStock = Math.floor(fac.gh * 2.5) + lvl * 10;
+                    const stockRatio = sim.stock / maxStock;
+                    
+                    ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.beginPath(); ctx.roundRect(uiPos.x - 20, uiPos.y - 20, 40, 6, 3); ctx.fill();
+                    ctx.fillStyle = stockRatio > 0.2 ? '#3b82f6' : '#ef4444'; 
+                    if (stockRatio > 0) {
+                      ctx.beginPath(); ctx.roundRect(uiPos.x - 19, uiPos.y - 19, 38 * stockRatio, 4, 2); ctx.fill();
+                    }
+
+                    if (sim.stock < maxStock * 0.5) {
+                       ctx.fillStyle = '#ef4444'; ctx.font = 'bold 22px sans-serif'; ctx.textAlign = 'center';
+                       ctx.fillText("📦", uiPos.x, uiPos.y - 30);
+                    }
+
+                  } else if (fac.type === 'register') {
+                    drawPrism(ctx, map, fac.gx, fac.gy, 0, fac.gw, fac.gh, 22, fac.colors);
+                    drawPrism(ctx, map, fac.gx + 0.2, fac.gy + 0.2, 22, fac.gw - 1.5, fac.gh - 0.4, 2, {top: '#1e293b', left: '#0f172a', right: '#020617'});
+                    
+                    const scanPos = toIso(map, fac.gx + fac.gw - 1.2, fac.gy + fac.gh/2, 25, camX, camY);
+                    ctx.fillStyle = 'rgba(239, 68, 68, 0.6)'; ctx.beginPath(); ctx.ellipse(scanPos.x, scanPos.y, 10, 5, 0, 0, Math.PI*2); ctx.fill();
+                    
+                    drawPrism(ctx, map, fac.gx + fac.gw - 1.0, fac.gy + 0.4, 22, 0.4, 0.7, 18, {top: '#3b82f6', left: '#2563eb', right: '#1d4ed8'});
+                    
+                    const cashierPos = toIso(map, fac.gx + fac.gw - 0.5, fac.gy + fac.gh/2, 0, camX, camY);
+                    const cScale = map.tileW / 60;
+                    ctx.save(); ctx.translate(cashierPos.x, cashierPos.y); ctx.scale(cScale, cScale);
+                    ctx.fillStyle = '#f97316'; ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 1.5;
+                    ctx.beginPath(); ctx.arc(0, -10, 8, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+                    ctx.fillRect(-8, -10, 16, 10);
+                    ctx.fillStyle = '#fef08a'; ctx.beginPath(); ctx.arc(0, -16, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+                    ctx.fillStyle = '#1e293b'; ctx.beginPath(); ctx.arc(0, -18, 6, Math.PI, 0); ctx.fill(); 
+                    ctx.restore();
+
+                    if (sim.cash > 0) {
+                       const uiPos = toIso(map, fac.gx + fac.gw/2, fac.gy + fac.gh/2, 90 + Math.sin(performance.now()/200)*5, camX, camY);
+                       ctx.fillStyle = '#4ade80'; ctx.beginPath(); ctx.arc(uiPos.x, uiPos.y, 20, 0, Math.PI*2); ctx.fill();
+                       ctx.strokeStyle = '#166534'; ctx.lineWidth = 3; ctx.stroke();
+                       ctx.fillStyle = '#14532d'; ctx.font = 'bold 22px sans-serif'; ctx.textAlign = 'center';
+                       ctx.fillText("$", uiPos.x, uiPos.y + 7);
+                    }
+                  } else if (fac.type === 'security') {
+                    // Security desk only
+                    drawPrism(ctx, map, fac.gx, fac.gy, 0, fac.gw, fac.gh, 15, fac.colors);
+                    drawPrism(ctx, map, fac.gx + 0.2, fac.gy + 0.2, 15, fac.gw - 0.4, fac.gh - 0.4, 15, {top: '#475569', left: '#334155', right: '#1e293b'});
+                  } else if (fac.type === 'decoration') {
+                    drawPrism(ctx, map, fac.gx + 0.1, fac.gy + 0.1, 0, fac.gw - 0.2, fac.gh - 0.2, 2, fac.colors);
+                    
+                    if (fac.subType === 'plant') {
+                        drawPrism(ctx, map, fac.gx + 0.2, fac.gy + 0.2, 2, 0.6, 0.6, 8, {top: '#78350f', left: '#451a03', right: '#271001'});
+                        const pSize = 0.4 + Math.min(lvl * 0.1, 0.6);
+                        drawPrism(ctx, map, fac.gx + 0.5 - pSize/2, fac.gy + 0.5 - pSize/2, 10, pSize, pSize, 8 + lvl * 3, fac.colors);
+                    } else if (fac.subType === 'statue') {
+                        drawPrism(ctx, map, fac.gx + 0.2, fac.gy + 0.2, 2, 0.6, 0.6, 12, {top: '#e2e8f0', left: '#cbd5e1', right: '#94a3b8'});
+                        drawPrism(ctx, map, fac.gx + 0.35, fac.gy + 0.35, 14, 0.3, 0.3, 15 + lvl * 5, fac.colors);
+                    } else if (fac.subType === 'sign') {
+                        drawPrism(ctx, map, fac.gx + 0.2, fac.gy + 0.4, 2, 0.2, 0.2, 30, {top: '#475569', left: '#334155', right: '#1e293b'});
+                        drawPrism(ctx, map, fac.gx + fac.gw - 0.4, fac.gy + 0.4, 2, 0.2, 0.2, 30, {top: '#475569', left: '#334155', right: '#1e293b'});
+                        drawPrism(ctx, map, fac.gx + 0.1, fac.gy + 0.4, 28, fac.gw - 0.2, 0.2, 5 + lvl * 2, {top: '#0f172a', left: '#020617', right: '#020617'});
+                        
+                        const signPos = toIso(map, fac.gx + fac.gw/2, fac.gy + 0.5, 34 + lvl, camX, camY);
+                        ctx.fillStyle = fac.colors.top;
+                        ctx.font = `bold ${12 + lvl * 2}px sans-serif`;
+                        ctx.textAlign = 'center';
+                        ctx.fillText("OPEN", signPos.x, signPos.y);
+
+                        if (isDark) {
+                            state.lights.push(() => {
+                                const grad = ctx.createRadialGradient(signPos.x, signPos.y, 0, signPos.x, signPos.y, 60 + lvl*15);
+                                grad.addColorStop(0, `rgba(236, 72, 153, ${0.7 + Math.sin(performance.now()/150)*0.1})`);
+                                grad.addColorStop(1, 'rgba(236, 72, 153, 0)');
+                                ctx.fillStyle = grad;
+                                ctx.beginPath(); ctx.arc(signPos.x, signPos.y, 60 + lvl*15, 0, Math.PI*2); ctx.fill();
+                            });
+                        }
+                    }
+                  }
+                  
+                  const isSelected = selectedFacility === fac.id;
+                  
+                  if (fac.type === 'security' && lvl > 0 && (isSelected || isNearby)) {
+                    const radius = 2 + lvl * 1.5;
+                    const center = toIso(map, fac.gx + fac.gw/2, fac.gy + fac.gh/2, 2, camX, camY);
+                    ctx.strokeStyle = 'rgba(239, 68, 68, 0.4)';
+                    ctx.lineWidth = 3;
+                    ctx.setLineDash([8, 8]);
+                    ctx.beginPath(); ctx.ellipse(center.x, center.y, radius * (map.tileW / 2), radius * (map.tileH / 2), 0, 0, Math.PI * 2); ctx.stroke();
+                    ctx.setLineDash([]);
+                  } else if (isSelected) {
+                    const center = toIso(map, fac.gx + fac.gw/2, fac.gy + fac.gh/2, 2, camX, camY);
+                    ctx.strokeStyle = '#eab308'; 
+                    ctx.lineWidth = 4;
+                    ctx.beginPath(); ctx.ellipse(center.x, center.y + 15, 48 * (map.tileW/60), 24 * (map.tileW/60), 0, 0, Math.PI * 2); ctx.stroke();
+                  } else if (isNearby) {
+                    const center = toIso(map, fac.gx + fac.gw/2, fac.gy + fac.gh/2, 2, camX, camY);
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+                    ctx.beginPath(); ctx.ellipse(center.x, center.y + 15, 45 * (map.tileW/60), 22 * (map.tileW/60), 0, 0, Math.PI * 2); ctx.fill();
+                  }
+
+                  const barPos = toIso(map, fac.gx + fac.gw/2, fac.gy + fac.gh/2, 85, camX, camY);
+                  state.npcs.forEach(npc => {
+                    if ((npc.state === 'SHOPPING_WAIT' || npc.state === 'REG_WAIT') && npc.targetFacility === fac.id && !npc.isShoplifter) {
+                      const maxT = npc.state === 'SHOPPING_WAIT' ? (fac.baseTimeMs / 1000) * Math.pow(0.95, lvl - 1) : (fac.baseTimeMs / 1000) * Math.pow(0.85, lvl - 1);
+                      const prog = npc.timer / maxT;
+                      ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.beginPath(); ctx.roundRect(barPos.x - 26, barPos.y - 2, 52, 10, 5); ctx.fill();
+                      ctx.fillStyle = fac.type === 'store' ? '#facc15' : '#4ade80'; ctx.beginPath(); ctx.roundRect(barPos.x - 24, barPos.y, 48 * prog, 6, 3); ctx.fill();
+                    }
+                  });
+                }
+              }
+            });
+          });
+
+          state.staff.forEach(s => {
+            renderQueue.push({ type: 'staff', isChar: true, x: s.x, y: s.y, zIndex: s.x + s.y, draw: () => drawCharacter(ctx, map, s, '#22c55e', false, true, false) });
+          });
+          
+          state.guards.forEach(g => {
+            renderQueue.push({ type: 'guard', isChar: true, x: g.x, y: g.y, zIndex: g.x + g.y, draw: () => drawCharacter(ctx, map, g, '#3b82f6', false, false, true) });
+          });
+
+          state.npcs.forEach(npc => {
+            renderQueue.push({ type: 'npc', isChar: true, x: npc.x, y: npc.y, zIndex: npc.x + npc.y, draw: () => drawCharacter(ctx, map, npc, npc.color) });
+          });
+          
+          renderQueue.push({ type: 'player', isChar: true, x: state.player.x, y: state.player.y, zIndex: state.player.x + state.player.y, draw: () => drawCharacter(ctx, map, state.player, '#3b82f6', true) });
+
+          renderQueue.push({
+            type: 'wall_back', zIndex: -100, 
+            draw: () => {
+               drawPrism(ctx, map, 0, 0, 0, eCols, 0.5, 40, {top: '#f1f5f9', left: '#cbd5e1', right: '#e2e8f0'});
+               drawPrism(ctx, map, 0, 0, 40, eCols, 0.2, 50, {top: 'rgba(186, 230, 253, 0.6)', left: 'rgba(125, 211, 252, 0.7)', right: 'rgba(56, 189, 248, 0.7)'});
+               for(let i=0; i<eCols; i+=4) drawPrism(ctx, map, i, 0, 40, 0.4, 0.4, 50, {top: '#94a3b8', left: '#64748b', right: '#475569'});
+
+               drawPrism(ctx, map, 0, 0, 0, 0.5, eRows, 40, {top: '#f1f5f9', left: '#cbd5e1', right: '#e2e8f0'});
+               drawPrism(ctx, map, 0, 0, 40, 0.2, eRows, 50, {top: 'rgba(186, 230, 253, 0.6)', left: 'rgba(125, 211, 252, 0.7)', right: 'rgba(56, 189, 248, 0.7)'});
+               for(let i=0; i<eRows; i+=4) drawPrism(ctx, map, 0, i, 40, 0.4, 0.4, 50, {top: '#94a3b8', left: '#64748b', right: '#475569'});
+            }
+          });
+
+          for (let x = 0; x < eCols; x++) {
+             if (x >= eEntrance.gx && x <= eEntrance.gx + 1) continue; 
+             renderQueue.push({
+                type: 'wall_front', isBox: true, gx: x, gy: eRows - 0.2, gw: 1.0, gh: 0.2,
+                zIndex: x + eRows, 
+                draw: () => {
+                   drawPrism(ctx, map, x, eRows - 0.2, 0, 1.0, 0.2, 12, {top: '#e2e8f0', left: '#cbd5e1', right: '#94a3b8'});
+                }
+             });
+          }
+          for (let y = 0; y < eRows; y++) {
+             renderQueue.push({
+                type: 'wall_right', isBox: true, gx: eCols - 0.2, gy: y, gw: 0.2, gh: 1.0,
+                zIndex: eCols + y,
+                draw: () => {
+                   drawPrism(ctx, map, eCols - 0.2, y, 0, 0.2, 1.0, 12, {top: '#e2e8f0', left: '#cbd5e1', right: '#94a3b8'});
+                }
+             });
+          }
+
+          renderQueue.push({
+             type: 'door', isBox: true, gx: eEntrance.gx, gy: eRows - 0.2, gw: 2.2, gh: 0.4,
+             zIndex: eEntrance.gx + eRows,
+             draw: () => {
+                const gx = eEntrance.gx;
+                const gy = eRows - 0.2;
+                const slideOffset = state.doorOpen * 0.9; 
+                
+                drawPrism(ctx, map, gx, gy, 0, 0.2, 0.4, 15, {top: '#475569', left: '#334155', right: '#1e293b'});
+                drawPrism(ctx, map, gx + 2, gy, 0, 0.2, 0.4, 15, {top: '#475569', left: '#334155', right: '#1e293b'});
+                drawPrism(ctx, map, gx, gy, 15, 2.2, 0.4, 1.5, {top: '#475569', left: '#334155', right: '#1e293b'});
+                
+                drawPrism(ctx, map, gx + 0.2 - slideOffset, gy + 0.1, 0, 0.85, 0.15, 15, {top: 'rgba(186, 230, 253, 0.6)', left: 'rgba(125, 211, 252, 0.7)', right: 'rgba(56, 189, 248, 0.7)'});
+                drawPrism(ctx, map, gx + 1.15 + slideOffset, gy + 0.1, 0, 0.85, 0.15, 15, {top: 'rgba(186, 230, 253, 0.6)', left: 'rgba(125, 211, 252, 0.7)', right: 'rgba(56, 189, 248, 0.7)'});
+                
+                if (isDark) {
+                    state.lights.push(() => {
+                        const doorPos = toIso(map, gx + 1.1, gy, 0, camX, camY);
+                        const grad = ctx.createRadialGradient(doorPos.x, doorPos.y, 0, doorPos.x, doorPos.y, 180);
+                        grad.addColorStop(0, 'rgba(255, 247, 237, 0.3)'); 
+                        grad.addColorStop(1, 'rgba(255, 247, 237, 0)');
+                        ctx.fillStyle = grad;
+                        ctx.beginPath(); ctx.arc(doorPos.x, doorPos.y, 180, 0, Math.PI*2); ctx.fill();
+                    });
+                }
+             }
+          });
+
+          renderQueue.sort((a, b) => {
+              if (a.zIndex < 0 || b.zIndex < 0) return a.zIndex - b.zIndex;
+
+              if ((a.isBox || a.isChar) && (b.isBox || b.isChar)) {
+                  const getBounds = (obj) => {
+                      if (obj.isBox) return { minX: obj.gx, maxX: obj.gx + obj.gw, minY: obj.gy, maxY: obj.gy + obj.gh };
+                      return { minX: obj.x - 0.35, maxX: obj.x + 0.35, minY: obj.y - 0.35, maxY: obj.y + 0.35 };
+                  };
+
+                  const bA = getBounds(a);
+                  const bB = getBounds(b);
+                  const eps = 0.01; 
+
+                  const aBehindB = (bA.maxX <= bB.minX + eps) || (bA.maxY <= bB.minY + eps);
+                  const bBehindA = (bB.maxX <= bA.minX + eps) || (bB.maxY <= bA.minY + eps);
+
+                  if (aBehindB && !bBehindA) return -1;
+                  if (bBehindA && !aBehindB) return 1;
+
+                  const aZ = bA.minX + bA.maxX + bA.minY + bA.maxY;
+                  const bZ = bB.minX + bB.maxX + bB.minY + bB.maxY;
+                  return aZ - bZ;
+              }
+              
+              return a.zIndex - b.zIndex;
+          });
+
+          renderQueue.forEach(item => item.draw());
+
+          // --- Draw Tutorial Arrow Overlays ---
+          if (tutRef.current >= 2 && tutRef.current <= 5) {
+            let tx = 0, ty = 0;
+            if (tutRef.current === 2) { tx = map.facilities.produce.gx + 1; ty = map.facilities.produce.gy + 3; }
+            if (tutRef.current === 3) { tx = map.facilities.reg1.gx + 1.5; ty = map.facilities.reg1.gy + 1; }
+            if (tutRef.current === 4) { tx = dzX; ty = dzY; }
+            if (tutRef.current === 5) { tx = map.facilities.produce.gx + 1; ty = map.facilities.produce.gy + 3; }
+            
+            const bounce = Math.sin(performance.now() / 150) * 15;
+            const pos = toIso(map, tx, ty, 80 + bounce, camX, camY);
+            
+            ctx.fillStyle = '#fde047';
+            ctx.beginPath();
+            ctx.moveTo(pos.x, pos.y);
+            ctx.lineTo(pos.x - 12, pos.y - 18);
+            ctx.lineTo(pos.x - 6, pos.y - 18);
+            ctx.lineTo(pos.x - 6, pos.y - 35);
+            ctx.lineTo(pos.x + 6, pos.y - 35);
+            ctx.lineTo(pos.x + 6, pos.y - 18);
+            ctx.lineTo(pos.x + 12, pos.y - 18);
+            ctx.closePath();
+            ctx.fill();
+            ctx.strokeStyle = '#ca8a04';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+          }
+
+          const ambientColor = getAmbientColor(state.timeOfDay);
+          if (ambientColor !== 'rgba(0, 0, 0, 0)') {
+              ctx.fillStyle = ambientColor;
+              ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+          }
+
+          if (state.lights.length > 0) {
+              ctx.globalCompositeOperation = 'lighter';
+              state.lights.forEach(lightDrawFunc => lightDrawFunc());
+              ctx.globalCompositeOperation = 'source-over';
+          }
+
+          if (state.player.interactTimer > 0) {
+             const pPos = toIso(map, state.player.x, state.player.y, 80, camX, camY);
+             ctx.fillStyle = 'rgba(0,0,0,0.6)';
+             ctx.fillRect(pPos.x - 20, pPos.y, 40, 6);
+             ctx.fillStyle = '#4ade80';
+             ctx.fillRect(pPos.x - 19, pPos.y + 1, 38 * Math.min(1.0, state.player.interactTimer / 0.3), 4);
+          }
+
+          state.particles.forEach(p => {
+            ctx.fillStyle = p.color; ctx.globalAlpha = Math.max(0, p.life);
+            ctx.beginPath(); ctx.arc(p.bx + camX, p.by + camY, p.size, 0, Math.PI*2); ctx.fill();
+            ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(0,0,0,0.2)'; ctx.stroke();
+          });
+          ctx.globalAlpha = 1.0;
+
+          state.floatingTexts.forEach(ft => {
+            ctx.fillStyle = ft.color; ctx.font = '900 24px "Inter", sans-serif'; ctx.textAlign = 'center';
+            ctx.globalAlpha = Math.max(0, ft.life); 
+            ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 5; ctx.strokeText(ft.text, ft.bx + camX, ft.by + camY); 
+            ctx.fillText(ft.text, ft.bx + camX, ft.by + camY);
+          });
+          ctx.globalAlpha = 1.0;
+        };
+
+        animationFrameId = requestAnimationFrame(gameLoop);
+        return () => cancelAnimationFrame(animationFrameId);
+      }, [addMoney, addGems, hasLoaded, getActiveMap, appMode]);
+
+      const activeMap = getActiveMap();
+      let interactData = null;
+      if (selectedFacility) {
+        const data = activeMap.facilities[selectedFacility];
+        const level = facilities[currentMapIndex][selectedFacility] || 0;
+        const cost = level === 0 ? data.baseCost : Math.floor(data.baseCost * Math.pow(data.costMult, level));
+        
+        let statLabel = ''; let statValue = '';
+        if (data.type === 'store') {
+          statLabel = 'Max Stock Capacity';
+          const baseStock = Math.floor(data.gh * 2.5);
+          statValue = level === 0 ? `${baseStock}` : `${baseStock + level*10} ➔ ${baseStock + (level+1)*10}`;
+        } else if (data.type === 'security') {
+          statLabel = 'Guard Catch Radius';
+          statValue = level === 0 ? `0m` : `${2 + (level-1)*1.5}m ➔ ${2 + level*1.5}m`;
+        } else if (data.type === 'decoration') {
+          statLabel = 'Attractiveness Bonus';
+          const curBonus = Math.floor(data.attrBonus * level * 100);
+          const nextBonus = Math.floor(data.attrBonus * (level + 1) * 100);
+          statValue = level === 0 ? `+${nextBonus}%` : `+${curBonus}% ➔ +${nextBonus}%`;
+        } else {
+          statLabel = 'Checkout Speed';
+          const currentSpeed = level === 0 ? data.baseTimeMs / 1000 : (data.baseTimeMs / 1000) * Math.pow(0.85, level - 1);
+          const nextSpeed = (data.baseTimeMs / 1000) * Math.pow(0.85, level);
+          statValue = level === 0 ? `${nextSpeed.toFixed(1)}s` : `${currentSpeed.toFixed(1)}s ➔ ${nextSpeed.toFixed(1)}s`;
+        }
+        interactData = { ...data, level, cost, statLabel, statValue, canAfford: money >= cost };
+      }
+
+      const expandCost = 2000 * Math.pow(3, mapExpansions[currentMapIndex]);
+      const currentStaff = staffCounts[currentMapIndex];
+      const currentMaxStaff = BASE_MAX_STAFF + (mapExpansions[currentMapIndex] || 0) * 2;
+      const isStaffMaxed = currentStaff >= currentMaxStaff;
+      const hireCost = 1000 * Math.pow(2, currentStaff);
+
+      // --- RENDER MAIN MENU ---
+      if (appMode === 'menu') {
+         return (
+             <div className="min-h-screen bg-slate-900 bg-gradient-to-br from-indigo-900 via-purple-900 to-slate-900 flex flex-col items-center justify-center font-sans select-none relative overflow-hidden">
+                {/* Decorative background elements */}
+                <div className="absolute top-10 left-10 text-6xl opacity-20 rotate-12">🛒</div>
+                <div className="absolute bottom-20 right-20 text-6xl opacity-20 -rotate-12">🛍️</div>
+                <div className="absolute top-40 right-10 text-5xl opacity-20 rotate-45">💵</div>
+                <div className="absolute bottom-40 left-10 text-7xl opacity-20 -rotate-6">🏬</div>
+
+                {/* Settings Button */}
+                <button 
+                    onClick={() => setShowSettingsModal(true)}
+                    className="absolute top-4 right-4 bg-white/20 hover:bg-white/30 backdrop-blur-md p-3 md:p-4 rounded-full border-2 border-white/30 shadow-lg transition-transform active:scale-95 z-40 text-xl md:text-2xl"
+                    title="Settings"
+                >
+                    ⚙️
+                </button>
+
+                <div className="bg-white/10 backdrop-blur-md rounded-[3rem] shadow-2xl p-10 flex flex-col items-center max-w-md w-[90%] z-10 border border-white/20">
+                    <div className="bg-gradient-to-br from-blue-400 to-indigo-600 w-24 h-24 rounded-3xl flex items-center justify-center text-5xl mb-6 shadow-lg border-4 border-white/30">
+                        🏪
+                    </div>
+                    <h1 className="text-4xl md:text-5xl font-black text-white mb-2 text-center leading-tight tracking-tight drop-shadow-md">
+                        Supermarket<br/><span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-300 to-orange-500">Tycoon</span>
+                    </h1>
+                    <p className="text-slate-300 font-bold mb-10 text-center">Manage, expand, and get rich.</p>
+                    
+                    <div className="flex flex-col gap-4 w-full">
+                        {hasSaveData && (
+                            <button 
+                                onClick={handleContinueGame}
+                                className="w-full py-4 bg-green-500 hover:bg-green-400 text-white rounded-2xl font-black text-xl transition-transform active:scale-95 shadow-lg border-b-[6px] border-green-700 flex justify-center items-center gap-3"
+                            >
+                                <span>▶️</span> Continue Game
+                            </button>
+                        )}
+                        <button 
+                            onClick={checkNewGameClick}
+                            className={`w-full py-4 rounded-2xl font-black text-xl transition-transform active:scale-95 shadow-lg border-b-[6px] flex justify-center items-center gap-3
+                                ${hasSaveData ? 'bg-slate-700 hover:bg-slate-600 text-white border-slate-900' : 'bg-blue-500 hover:bg-blue-400 text-white border-blue-700'}`}
+                        >
+                            <span>✨</span> New Game
+                        </button>
+                    </div>
+                </div>
+
+                {/* Settings Modal (Main Menu context) */}
+                {showSettingsModal && (
+                    <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+                      <div className="bg-white rounded-[2rem] shadow-2xl max-w-md w-full p-6 md:p-8 flex flex-col gap-6">
+                        <div className="flex justify-between items-center border-b-2 border-slate-100 pb-4">
+                          <h2 className="text-2xl font-black text-slate-800 flex items-center gap-2"><span>⚙️</span> Settings</h2>
+                          <button onClick={() => setShowSettingsModal(false)} className="bg-slate-100 text-slate-500 p-2 rounded-full hover:bg-slate-200 transition-colors">
+                            <span>❌</span>
+                          </button>
+                        </div>
+                        
+                        <div className="flex flex-col gap-4">
+                          <div className="flex justify-between items-center bg-slate-50 p-4 rounded-2xl border-2 border-slate-100">
+                            <span className="font-black text-lg text-slate-700">Sound Effects (SFX)</span>
+                            <button onClick={toggleSfx} className={`w-16 h-8 flex items-center rounded-full p-1 transition-colors ${sfxOn ? 'bg-green-500' : 'bg-slate-300'}`}>
+                               <div className={`bg-white w-6 h-6 rounded-full shadow-md transform transition-transform ${sfxOn ? 'translate-x-8' : ''}`}></div>
+                            </button>
+                          </div>
+                          
+                          <div className="flex justify-between items-center bg-slate-50 p-4 rounded-2xl border-2 border-slate-100">
+                            <span className="font-black text-lg text-slate-700">Background Music</span>
+                            <button onClick={toggleBgm} className={`w-16 h-8 flex items-center rounded-full p-1 transition-colors ${bgmOn ? 'bg-blue-500' : 'bg-slate-300'}`}>
+                               <div className={`bg-white w-6 h-6 rounded-full shadow-md transform transition-transform ${bgmOn ? 'translate-x-8' : ''}`}></div>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                )}
+
+                {/* Confirm New Game Modal */}
+                {showConfirmNew && (
+                    <div className="absolute inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+                        <div className="bg-white rounded-3xl max-w-sm w-full p-8 flex flex-col items-center text-center shadow-2xl">
+                            <span className="text-5xl mb-4">⚠️</span>
+                            <h2 className="text-2xl font-black text-slate-800 mb-2">Overwrite Save?</h2>
+                            <p className="text-slate-600 font-bold mb-8">Starting a new game will completely erase your current supermarket empire. Are you sure?</p>
+                            <div className="flex w-full gap-4">
+                                <button 
+                                    onClick={() => setShowConfirmNew(false)}
+                                    className="flex-1 py-3 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl font-black border-b-4 border-slate-300 active:scale-95 transition-transform"
+                                >
+                                    Cancel
+                                </button>
+                                <button 
+                                    onClick={handleStartNewGame}
+                                    className="flex-1 py-3 bg-red-500 hover:bg-red-400 text-white rounded-xl font-black border-b-4 border-red-700 active:scale-95 transition-transform"
+                                >
+                                    Erase & Start
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+             </div>
+         );
+      }
+
+      if (!hasLoaded) return null;
+
+      // --- RENDER PLAYING ---
+      return (
+        <div className="min-h-screen bg-[#dbeafe] flex flex-col items-center justify-center font-sans select-none overflow-hidden relative">
+          
+          {tutorialStep > 0 && (
+            <div className="absolute top-20 md:top-24 left-1/2 -translate-x-1/2 z-30 pointer-events-auto w-[90%] max-w-lg animate-in fade-in slide-in-from-top-4 duration-300">
+              <div className="bg-white/95 backdrop-blur-md rounded-3xl shadow-2xl border-[4px] border-blue-400 p-6 text-center flex flex-col items-center gap-3">
+                 <div className="text-4xl">
+                     {tutorialStep === 1 && '👋'}
+                     {tutorialStep === 2 && '🔨'}
+                     {tutorialStep === 3 && '💳'}
+                     {tutorialStep === 4 && '📦'}
+                     {tutorialStep === 5 && '🥬'}
+                     {tutorialStep === 6 && '🎉'}
+                 </div>
+                 <h3 className="text-lg md:text-xl font-black text-slate-800 leading-tight">
+                    {tutorialStep === 1 && "Welcome Tycoon! Move your player around using WASD, Arrow Keys, or the Joystick on your screen."}
+                    {tutorialStep === 2 && "Time to open shop! Tap on an empty plot and Build an aisle."}
+                    {tutorialStep === 3 && "Customers will automatically buy things. Wait for them to finish, then go to the Register to collect your cash!"}
+                    {tutorialStep === 4 && "You need more supplies to keep earning. Walk outside to the Delivery Zone and pick up some boxes."}
+                    {tutorialStep === 5 && "Great! Now walk to your empty aisle and stand near it to restock the shelves."}
+                    {tutorialStep === 6 && "You're a natural! Use your money to expand, hire staff, and build your empire."}
+                 </h3>
+                 {tutorialStep === 6 && (
+                    <button 
+                       onClick={() => { setTutorialStep(0); tutRef.current = 0; }} 
+                       className="mt-2 bg-blue-500 hover:bg-blue-400 text-white font-black py-3 px-8 rounded-2xl border-b-[4px] border-blue-700 active:scale-95 transition-transform shadow-lg text-lg"
+                    >
+                        Start Playing!
+                    </button>
+                 )}
+              </div>
+            </div>
+          )}
+
+          <div className="absolute top-2 md:top-4 w-full px-2 md:px-4 z-10 flex flex-wrap justify-between items-center pointer-events-none max-w-5xl gap-y-2">
+            <div className="flex gap-2 w-full md:w-auto justify-between md:justify-start">
+              <div className="bg-slate-900 text-white px-3 md:px-5 py-1.5 md:py-2.5 rounded-full border-2 border-slate-700 shadow-[0_8px_16px_rgba(15,23,42,0.4)] flex items-center gap-1 md:gap-2 pointer-events-auto backdrop-blur-md min-w-[120px] md:min-w-[140px] justify-center">
+                 <span className="text-sm md:text-xl">⏱️</span>
+                 <span id="game-clock" className="font-digital font-black text-sm md:text-xl tracking-widest text-blue-200">08:00 AM</span>
+                 <span id="store-status" className="font-black text-xs md:text-sm ml-1 md:ml-2 text-green-400">OPEN</span>
+              </div>
+              <div className="bg-[#4f46e5] text-white px-3 md:px-5 py-1.5 md:py-2.5 rounded-full border-2 border-indigo-400 shadow-[0_8px_16px_rgba(79,70,229,0.4)] flex items-center gap-1 md:gap-2 pointer-events-auto backdrop-blur-md">
+                 <span className="text-[#4ade80] text-sm md:text-xl">📈</span>
+                 <span className="font-black text-sm md:text-lg tracking-tight">{formatMoney(incomeRate)}<span className="text-xs md:text-sm text-indigo-200 ml-0.5 md:ml-1">/m</span></span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 w-full md:w-auto justify-center md:justify-end">
+               <div className="bg-[#ec4899] text-white px-3 md:px-5 py-1.5 md:py-2.5 rounded-full border-2 border-pink-400 shadow-[0_8px_16px_rgba(236,72,153,0.4)] flex items-center gap-1 md:gap-2 pointer-events-auto">
+                 <span className="text-pink-200 text-sm md:text-lg">✨</span>
+                 <span className="font-black text-sm md:text-lg tracking-tight">{Math.round(currentAttractiveness * 100)}%</span>
+               </div>
+
+               <div className="bg-[#22c55e] text-white px-4 md:px-6 py-1.5 md:py-2.5 rounded-full border-2 border-green-400 shadow-[0_8px_16px_rgba(34,197,94,0.4)] flex items-center gap-1 md:gap-2 pointer-events-auto">
+                 <span className="bg-white/20 rounded-full px-1 text-xs md:text-sm font-bold">💲</span>
+                 <span className="font-black text-sm md:text-xl tracking-tight">{formatMoney(money)}</span>
+               </div>
+               
+               <div className="bg-[#9333ea] text-white pl-3 md:pl-4 pr-1 py-1 rounded-full border-2 border-purple-400 shadow-[0_8px_16px_rgba(147,51,234,0.4)] flex items-center gap-1 md:gap-3 pointer-events-auto">
+                 <span className="text-purple-200 text-sm md:text-lg">💎</span>
+                 <span className="font-black text-sm md:text-lg">{gems}</span>
+                 <button onClick={() => setShowUpgradesModal(true)} className="bg-white/20 hover:bg-white/30 transition-colors rounded-full w-6 h-6 md:w-8 md:h-8 flex items-center justify-center cursor-pointer">
+                   <span className="text-white text-xs md:text-base">➕</span>
+                 </button>
+               </div>
+            </div>
+          </div>
+
+          <div className="absolute bottom-4 left-4 z-10 pointer-events-auto flex flex-col md:flex-row gap-2 md:gap-4 hidden md:flex">
+            <button 
+              onClick={handleExpandStore}
+              disabled={money < expandCost}
+              className={`px-4 py-2 md:px-6 md:py-4 rounded-[1rem] md:rounded-[1.5rem] font-black text-sm md:text-xl flex flex-col items-center justify-center md:gap-1 transition-transform active:scale-95 shadow-xl border-[3px] md:border-[4px] border-white
+                ${money >= expandCost ? 'bg-amber-500 text-white hover:bg-amber-400' : 'bg-slate-300 text-slate-500 cursor-not-allowed'}`}
+            >
+              <span>🏗️ Expand</span>
+              <span className="text-xs md:text-sm bg-black/20 px-2 py-0.5 rounded-full">${formatMoney(expandCost)}</span>
+            </button>
+
+            <button 
+              onClick={handleHireStaff}
+              disabled={isStaffMaxed || money < hireCost}
+              className={`px-4 py-2 md:px-6 md:py-4 rounded-[1rem] md:rounded-[1.5rem] font-black text-sm md:text-xl flex flex-col items-center justify-center md:gap-1 transition-transform active:scale-95 shadow-xl border-[3px] md:border-[4px] border-white
+                ${isStaffMaxed ? 'bg-slate-400 text-white cursor-not-allowed' : money >= hireCost ? 'bg-green-500 text-white hover:bg-green-400' : 'bg-slate-300 text-slate-500 cursor-not-allowed'}`}
+            >
+              <span>🧑‍🍳 Hire ({currentStaff}/{currentMaxStaff})</span>
+              <span className="text-xs md:text-sm bg-black/20 px-2 py-0.5 rounded-full">{isStaffMaxed ? 'MAX' : `$${formatMoney(hireCost)}`}</span>
+            </button>
+          </div>
+
+          <div 
+            ref={joystickBaseRef}
+            className="fixed bottom-6 left-6 w-32 h-32 bg-white/20 rounded-full border-2 border-white/40 backdrop-blur-sm flex items-center justify-center touch-none md:hidden z-40 pointer-events-auto"
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+          >
+             <div 
+               className="w-12 h-12 bg-white/90 rounded-full shadow-lg border border-slate-200 pointer-events-none transition-transform duration-75" 
+               style={{ transform: `translate(${joystickPos.x}px, ${joystickPos.y}px)` }} 
+             />
+          </div>
+          
+          <div className="absolute bottom-6 right-4 z-10 pointer-events-auto flex flex-col gap-2 md:hidden">
+             <button 
+              onClick={handleExpandStore} disabled={money < expandCost}
+              className={`w-14 h-14 rounded-full font-black text-lg flex items-center justify-center transition-transform active:scale-95 shadow-xl border-2 border-white
+                ${money >= expandCost ? 'bg-amber-500 text-white' : 'bg-slate-300 text-slate-500'}`}>🏗️</button>
+             <button 
+              onClick={handleHireStaff} disabled={isStaffMaxed || money < hireCost}
+              className={`w-14 h-14 rounded-full font-black text-lg flex items-center justify-center transition-transform active:scale-95 shadow-xl border-2 border-white
+                ${isStaffMaxed ? 'bg-slate-400 text-white' : money >= hireCost ? 'bg-green-500 text-white' : 'bg-slate-300 text-slate-500'}`}>🧑‍🍳</button>
+          </div>
+
+          <div className="absolute top-28 md:top-24 right-2 md:right-4 z-10 flex flex-col gap-2 md:gap-4 pointer-events-auto">
+            <button 
+              onClick={() => setShowMapModal(true)} 
+              className="w-12 h-12 md:w-16 md:h-16 bg-blue-500 rounded-full border-[2px] md:border-[3px] border-white shadow-[0_10px_20px_rgba(59,130,246,0.5)] flex items-center justify-center active:scale-90 transition-all hover:bg-blue-400 group relative"
+            >
+              <span className="text-white drop-shadow-md text-xl md:text-2xl">🗺️</span>
+              <span className="absolute right-full mr-4 bg-black/70 text-white px-2 py-1 rounded text-sm font-bold opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap hidden md:block">Map</span>
+            </button>
+            
+            <button 
+              onClick={() => setShowUpgradesModal(true)} 
+              className="w-12 h-12 md:w-16 md:h-16 bg-purple-500 rounded-full border-[2px] md:border-[3px] border-white shadow-[0_10px_20px_rgba(147,51,234,0.5)] flex items-center justify-center active:scale-90 transition-all hover:bg-purple-400 group relative"
+            >
+              <span className="text-white drop-shadow-md text-xl md:text-2xl">💎</span>
+              <span className="absolute right-full mr-4 bg-black/70 text-white px-2 py-1 rounded text-sm font-bold opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap hidden md:block">Upgrades</span>
+            </button>
+            
+            {/* Settings Button */}
+            <button 
+              onClick={() => setShowSettingsModal(true)} 
+              className="w-12 h-12 md:w-16 md:h-16 bg-slate-700 rounded-full border-[2px] md:border-[3px] border-white shadow-[0_10px_20px_rgba(15,23,42,0.5)] flex items-center justify-center active:scale-90 transition-all hover:bg-slate-600 group relative mt-4 md:mt-8"
+            >
+              <span className="text-white drop-shadow-md text-xl md:text-2xl">⚙️</span>
+              <span className="absolute right-full mr-4 bg-black/70 text-white px-2 py-1 rounded text-sm font-bold opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap hidden md:block">Settings</span>
+            </button>
+          </div>
+
+          <div className="relative shadow-[0_10px_30px_rgba(0,0,0,0.3)] md:shadow-[0_20px_50px_rgba(0,0,0,0.3)] rounded-[1.5rem] md:rounded-[2.5rem] overflow-hidden border-[6px] md:border-[10px] border-slate-800 bg-[#e2e8f0] max-w-5xl w-[95%] md:w-full h-[75vh] md:h-[85vh]">
+            <canvas
+              ref={canvasRef} width={CANVAS_WIDTH} height={CANVAS_HEIGHT}
+              onPointerDown={handlePointerDown}
+              className="w-full h-full object-contain touch-none cursor-crosshair bg-sky-200"
+            />
+            
+            <div className="absolute top-2 left-2 flex flex-col gap-1 md:top-4 md:left-4 md:gap-2 pointer-events-none">
+               <div className="bg-white/80 backdrop-blur-md px-2 py-1 md:px-3 md:py-1.5 rounded-full shadow-sm border border-white/50 flex items-center gap-1 md:gap-2">
+                 <span className="text-amber-500 text-xs md:text-sm">🏃</span> <span className="text-[10px] md:text-xs font-bold text-slate-700">Click thieves to bust!</span>
+               </div>
+            </div>
+          </div>
+
+          {/* Settings Modal (In-game) */}
+          {showSettingsModal && (
+            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-in fade-in duration-200 pointer-events-auto">
+              <div className="bg-white rounded-[2rem] shadow-2xl max-w-md w-full p-6 md:p-8 flex flex-col gap-6">
+                <div className="flex justify-between items-center border-b-2 border-slate-100 pb-4">
+                  <h2 className="text-2xl font-black text-slate-800 flex items-center gap-2"><span>⚙️</span> Settings</h2>
+                  <button onClick={() => setShowSettingsModal(false)} className="bg-slate-100 text-slate-500 p-2 rounded-full hover:bg-slate-200 transition-colors">
+                    <span>❌</span>
+                  </button>
+                </div>
+                
+                <div className="flex flex-col gap-4">
+                  <div className="flex justify-between items-center bg-slate-50 p-4 rounded-2xl border-2 border-slate-100">
+                    <span className="font-black text-lg text-slate-700">Sound Effects (SFX)</span>
+                    <button onClick={toggleSfx} className={`w-16 h-8 flex items-center rounded-full p-1 transition-colors ${sfxOn ? 'bg-green-500' : 'bg-slate-300'}`}>
+                       <div className={`bg-white w-6 h-6 rounded-full shadow-md transform transition-transform ${sfxOn ? 'translate-x-8' : ''}`}></div>
+                    </button>
+                  </div>
+                  
+                  <div className="flex justify-between items-center bg-slate-50 p-4 rounded-2xl border-2 border-slate-100">
+                    <span className="font-black text-lg text-slate-700">Background Music</span>
+                    <button onClick={toggleBgm} className={`w-16 h-8 flex items-center rounded-full p-1 transition-colors ${bgmOn ? 'bg-blue-500' : 'bg-slate-300'}`}>
+                       <div className={`bg-white w-6 h-6 rounded-full shadow-md transform transition-transform ${bgmOn ? 'translate-x-8' : ''}`}></div>
+                    </button>
+                  </div>
+                </div>
+
+                <button 
+                  onClick={() => { stopBGM(); setShowSettingsModal(false); setAppMode('menu'); }} 
+                  className="mt-4 w-full py-4 bg-rose-500 hover:bg-rose-400 text-white rounded-2xl font-black text-xl transition-transform active:scale-95 shadow-lg border-b-[4px] border-rose-700 flex justify-center items-center gap-3"
+                >
+                  🚪 Quit to Main Menu
+                </button>
+              </div>
+            </div>
+          )}
+
+          {showUpgradesModal && (
+            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex items-center justify-center p-2 md:p-4 animate-in fade-in duration-200 pointer-events-auto">
+              <div className="bg-white rounded-[2rem] md:rounded-[3rem] shadow-2xl max-w-2xl w-full p-4 md:p-8 flex flex-col gap-4 md:gap-6 max-h-[95vh] overflow-y-auto">
+                <div className="flex justify-between items-center border-b-2 border-slate-100 pb-2 md:pb-4 shrink-0">
+                  <h2 className="text-xl md:text-3xl font-black text-slate-800 flex items-center gap-2 md:gap-3"><span className="text-purple-500 text-xl md:text-3xl">💎</span> Global Upgrades</h2>
+                  <button onClick={() => setShowUpgradesModal(false)} className="bg-slate-100 text-slate-500 p-2 md:p-3 rounded-full hover:bg-slate-200 transition-colors">
+                    <span className="text-lg md:text-2xl">❌</span>
+                  </button>
+                </div>
+                
+                <div className="flex flex-col gap-4">
+                  {Object.keys(UPGRADES_DB).map((key) => {
+                    const upg = UPGRADES_DB[key];
+                    const curLevel = upgrades[key];
+                    const isMax = curLevel >= upg.maxLevel;
+                    const cost = Math.floor(upg.baseCost * Math.pow(upg.costMult, curLevel));
+                    const canAfford = gems >= cost;
+                    
+                    return (
+                      <div key={key} className={`border-[2px] md:border-[3px] rounded-[1.5rem] md:rounded-[2rem] p-4 flex justify-between items-center transition-all ${isMax ? 'border-amber-400 bg-amber-50' : 'border-slate-200 bg-white hover:border-purple-300 hover:shadow-md'}`}>
+                        <div className="flex items-center gap-4">
+                            <div className="text-4xl md:text-5xl drop-shadow-sm">{upg.icon}</div>
+                            <div>
+                                <h3 className="text-lg md:text-xl font-black text-slate-800 leading-tight">{upg.name}</h3>
+                                <p className="text-xs md:text-sm font-bold text-slate-500 mb-1">{upg.desc}</p>
+                                <span className={`text-[10px] md:text-xs font-black uppercase tracking-widest px-2 py-0.5 rounded-lg ${isMax ? 'bg-amber-200 text-amber-800' : 'bg-blue-100 text-blue-700'}`}>
+                                    Level {curLevel} / {upg.maxLevel}
+                                </span>
+                            </div>
+                        </div>
+                        <button 
+                          onClick={() => handleBuyUpgrade(key)} disabled={isMax || !canAfford}
+                          className={`px-4 py-3 md:px-6 md:py-4 rounded-[1rem] md:rounded-[1.5rem] font-black text-sm md:text-lg transition-transform active:scale-95 shadow-md flex justify-center items-center gap-2 whitespace-nowrap
+                            ${isMax ? 'bg-amber-500 text-white cursor-not-allowed border-b-4 border-amber-600' : 
+                              canAfford ? 'bg-purple-500 text-white hover:bg-purple-400 border-b-4 border-purple-700' : 
+                              'bg-slate-200 text-slate-400 cursor-not-allowed'}`}
+                        >
+                          {isMax ? 'MAXED' : <><span>💎</span> {cost}</>}
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {showMapModal && (
+            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex items-center justify-center p-2 md:p-4 animate-in fade-in duration-200 pointer-events-auto">
+              <div className="bg-white rounded-[2rem] md:rounded-[3rem] shadow-2xl max-w-4xl w-full p-4 md:p-8 flex flex-col gap-4 md:gap-6 max-h-[95vh] overflow-y-auto">
+                <div className="flex justify-between items-center border-b-2 border-slate-100 pb-2 md:pb-4 shrink-0">
+                  <h2 className="text-xl md:text-3xl font-black text-slate-800 flex items-center gap-2 md:gap-3"><span className="text-blue-500 text-xl md:text-3xl">📍</span> Select Location</h2>
+                  <button onClick={() => setShowMapModal(false)} className="bg-slate-100 text-slate-500 p-2 md:p-3 rounded-full hover:bg-slate-200 transition-colors">
+                    <span className="text-lg md:text-2xl">❌</span>
+                  </button>
+                </div>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 md:gap-6">
+                  {MAPS.map((m, idx) => {
+                    const activeCols = m.cols + mapExpansions[idx] * 4;
+                    const activeRows = m.rows + mapExpansions[idx] * 4;
+                    return (
+                      <div key={m.id} className={`border-[2px] md:border-[3px] rounded-[1.5rem] md:rounded-[2rem] p-4 md:p-6 flex flex-col gap-3 md:gap-4 relative overflow-hidden transition-all
+                        ${currentMapIndex === idx ? 'border-blue-500 bg-blue-50 scale-105 shadow-xl' : 'border-slate-200 bg-white hover:border-blue-300 hover:shadow-md'}`}>
+                        
+                        {currentMapIndex === idx && <div className="absolute top-0 left-0 right-0 bg-blue-500 text-white text-[8px] md:text-[10px] font-black text-center py-1 tracking-widest uppercase">Current Location</div>}
+                        
+                        <div className="mt-2 md:mt-4">
+                          <h3 className="text-lg md:text-xl font-black text-slate-800 leading-tight">{m.name}</h3>
+                          <p className="text-xs md:text-sm font-bold text-slate-500">{activeCols}x{activeRows} Expansion</p>
+                        </div>
+                        
+                        <div className="flex-grow">
+                          <ul className="text-xs md:text-sm font-bold text-slate-600 flex flex-col gap-1 md:gap-2 bg-white/50 p-2 md:p-3 rounded-xl">
+                              <li className="flex items-center gap-2"><span className="text-green-500">🏪</span> {Object.keys(getActiveMap().facilities).filter(f => getActiveMap().facilities[f].type === 'store').length} Aisles</li>
+                              <li className="flex items-center gap-2"><span className="text-purple-500">💳</span> {Object.keys(getActiveMap().facilities).filter(f => getActiveMap().facilities[f].type === 'register').length} Registers</li>
+                              <li className="flex items-center gap-2"><span className="text-blue-500">🧑‍🍳</span> {staffCounts[idx]} Staff</li>
+                          </ul>
+                        </div>
+
+                        <button 
+                          onClick={() => handleTravel(idx)}
+                          disabled={!unlockedMaps[idx] && money < m.unlockCost}
+                          className={`w-full py-3 md:py-4 rounded-[1rem] md:rounded-[1.5rem] font-black text-sm md:text-lg transition-transform active:scale-95 shadow-md flex justify-center items-center gap-2
+                            ${currentMapIndex === idx ? 'bg-blue-600 text-white opacity-50 cursor-not-allowed' : 
+                              unlockedMaps[idx] ? 'bg-blue-500 text-white hover:bg-blue-400 border-b-4 border-blue-700' :
+                              money >= m.unlockCost ? 'bg-green-500 text-white hover:bg-green-400 border-b-4 border-green-700' : 
+                              'bg-slate-200 text-slate-400 cursor-not-allowed'}`}
+                        >
+                          {currentMapIndex === idx ? 'Here' : 
+                          unlockedMaps[idx] ? 'Travel' : 
+                          <><span>💲</span> Unlock {formatMoney(m.unlockCost)}</>}
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div 
+            className={`absolute bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] z-20 pointer-events-auto
+            ${interactData ? 'translate-y-0' : 'translate-y-full'}`}
+          >
+            <div className="bg-white rounded-t-[2rem] md:rounded-t-[3rem] shadow-[0_-20px_50px_rgba(0,0,0,0.15)] p-6 md:p-8 pb-8 md:pb-10 border-t-4 md:border-t-8 border-slate-100 flex flex-col gap-4 md:gap-6">
+              
+              <div className="absolute top-3 left-1/2 -translate-x-1/2 w-12 md:w-16 h-1 md:h-1.5 bg-slate-300 rounded-full"></div>
+
+              {interactData && (
+                <>
+                  <div className="flex justify-between items-center mt-2">
+                    <div className="flex items-center gap-3 md:gap-4">
+                      <div className={`p-3 md:p-4 rounded-[1rem] md:rounded-[1.5rem] text-white shadow-inner flex items-center justify-center h-[50px] w-[50px] md:h-[64px] md:w-[64px]`} style={{ backgroundColor: interactData.colors.top }}>
+                        {interactData.level === 0 ? <span className="text-2xl md:text-3xl">🔨</span> : (
+                          interactData.type === 'store' ? <span className="text-2xl md:text-3xl">🏪</span> : 
+                          interactData.type === 'security' ? <span className="text-2xl md:text-3xl">🛡️</span> : 
+                          interactData.type === 'decoration' ? <span className="text-2xl md:text-3xl">✨</span> : 
+                          <span className="text-2xl md:text-3xl">💳</span>
+                        )}
+                      </div>
+                      <div>
+                        <h2 className="text-xl md:text-3xl font-black text-slate-800 leading-tight tracking-tight">{interactData.name}</h2>
+                        {interactData.level > 0 ? (
+                          <span className="text-xs md:text-sm font-black text-blue-600 uppercase tracking-widest bg-blue-50 px-2 py-0.5 md:px-3 md:py-1 rounded-lg mt-1 inline-block">Level {interactData.level}</span>
+                        ) : <span className="text-xs md:text-sm font-black text-amber-600 uppercase tracking-widest bg-amber-50 px-2 py-0.5 md:px-3 md:py-1 rounded-lg mt-1 inline-block">Empty Plot</span>}
+                      </div>
+                    </div>
+                    <button onClick={() => setSelectedFacility(null)} className="bg-slate-100 p-2 md:p-3 rounded-full text-slate-400 hover:bg-slate-200 hover:text-slate-600 transition-colors">
+                      <span className="text-xl md:text-2xl inline-block">🔽</span>
+                    </button>
+                  </div>
+                  
+                  <div className="bg-slate-50 rounded-2xl md:rounded-3xl p-4 md:p-5 flex justify-between items-center border-2 border-slate-100">
+                    <span className="text-xs md:text-sm font-black text-slate-400 uppercase tracking-wider">{interactData.statLabel}</span>
+                    <span className={`text-lg md:text-2xl font-black ${interactData.type === 'store' ? 'text-green-500' : interactData.type === 'decoration' ? 'text-pink-500' : 'text-blue-500'}`}>
+                      {interactData.statValue}
+                    </span>
+                  </div>
+
+                  <button
+                    onClick={handleInteract} disabled={!interactData.canAfford}
+                    className={`w-full py-4 md:py-5 rounded-[1.5rem] md:rounded-[2rem] font-black text-xl md:text-2xl flex items-center justify-center gap-2 md:gap-3 transition-transform active:scale-95 shadow-xl
+                      ${interactData.canAfford ? 'bg-blue-500 text-white hover:bg-blue-400 border-b-[4px] md:border-b-[6px] border-blue-700' : 'bg-slate-200 text-slate-400 cursor-not-allowed border-b-[4px] md:border-b-[6px] border-slate-300'}`}
+                  >
+                    {interactData.level === 0 ? 'Build' : 'Upgrade'}
+                    <span className={`ml-1 md:ml-2 px-3 md:px-4 py-1 md:py-1.5 rounded-xl md:rounded-2xl text-base md:text-lg ${interactData.canAfford ? 'bg-blue-700 shadow-inner' : 'bg-slate-300 text-slate-500'}`}>
+                      {formatMoney(interactData.cost)}
+                    </span>
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<SupermarketGame />);
+  </script>
+</body>
+</html>
